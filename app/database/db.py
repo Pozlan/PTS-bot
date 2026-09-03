@@ -26,6 +26,22 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_add_missing_columns)
+    await _ensure_global_group()
+
+
+async def _ensure_global_group() -> None:
+    """player_state.group_id carries a FK to groups.id. Balances/streaks/
+    protection now live under the economy.GLOBAL_ID sentinel (0) instead of
+    a real Telegram chat id (see economy.get_or_create_state), so that
+    sentinel needs an actual row in `groups` or every wallet creation fails
+    the FK constraint. Runs once at startup, idempotent."""
+    from app.database.models import Group
+    from app.services.economy import GLOBAL_ID
+    async with SessionLocal() as session:
+        existing = await session.get(Group, GLOBAL_ID)
+        if existing is None:
+            session.add(Group(id=GLOBAL_ID, title="GLOBAL"))
+            await session.commit()
 
 
 def _add_missing_columns(sync_conn) -> None:
