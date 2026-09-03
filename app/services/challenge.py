@@ -92,11 +92,11 @@ async def resolve_challenge(
     if winner_id is None:
         pass  # nothing to transfer, reservations already released = wagers returned
     elif winner_id == challenge.creator_id:
-        await adjust_balance(session, creator_state, challenge.wager, "game", ref=f"{challenge.game}#{challenge.id} win")
-        await adjust_balance(session, acceptor_state, -challenge.wager, "game", ref=f"{challenge.game}#{challenge.id} loss")
+        await adjust_balance(session, creator_state, challenge.wager, "game", ref=f"{challenge.game}#{challenge.id} win", group_id=challenge.group_id)
+        await adjust_balance(session, acceptor_state, -challenge.wager, "game", ref=f"{challenge.game}#{challenge.id} loss", group_id=challenge.group_id)
     else:
-        await adjust_balance(session, acceptor_state, challenge.wager, "game", ref=f"{challenge.game}#{challenge.id} win")
-        await adjust_balance(session, creator_state, -challenge.wager, "game", ref=f"{challenge.game}#{challenge.id} loss")
+        await adjust_balance(session, acceptor_state, challenge.wager, "game", ref=f"{challenge.game}#{challenge.id} win", group_id=challenge.group_id)
+        await adjust_balance(session, creator_state, -challenge.wager, "game", ref=f"{challenge.game}#{challenge.id} loss", group_id=challenge.group_id)
 
     challenge.status = "resolved"
 

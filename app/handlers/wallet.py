@@ -5,7 +5,10 @@ from sqlalchemy import select, desc
 
 from app.database.db import get_session
 from app.database.models import PlayerState, User
-from app.services.economy import get_or_create_user, get_or_create_group, get_or_create_state, format_amount
+from app.services.economy import (
+    get_or_create_user, get_or_create_group, get_or_create_state, format_amount,
+    available_balance, GLOBAL_ID,
+)
 from app.services.premium_emoji import pe
 from app.utils.html_esc import esc
 
@@ -24,8 +27,8 @@ async def start(message: Message):
         await get_or_create_group(session, message.chat.id, message.chat.title or "")
         await get_or_create_state(session, user.id, message.chat.id)
     await message.reply(
-        f"{pe('play')} <b>pts</b> is now live in this group.\n\n"
-        "new here? send <code>/help</code> to see everything you can do."
+        "Welcome to PTS [ 5893321843149902412 ] Your points. Your luck. "
+        "Your problem. Use <code>/help</code> to see the commands."
     )
 
 
@@ -54,29 +57,42 @@ async def help_cmd(message: Message):
         "<code>/protect</code> — 24h robbery shield\n"
         "\n"
         "<b>You</b>\n"
-        "<code>/bal</code> — your balance\n"
+        "<code>/bal</code> — your balance (global — same everywhere)\n"
         "<code>/stats</code> — your record\n"
-        "<code>/top</code> — group leaderboard"
+        "<code>/top</code> or <code>/gtop</code> — global leaderboard\n"
+        "\n"
+        "DM me <code>/bal</code>, <code>/stats</code>, or <code>/gtop</code> any time to check in privately."
     )
 
 
 @router.message(Command("bal"))
 async def bal(message: Message):
+    """Balance is global (see economy.GLOBAL_ID) — same number in every
+    group. Also surfaces anything currently locked in an open challenge you
+    hosted, so a stuck reservation is never invisible again."""
     async with get_session() as session:
         user = message.from_user
         await get_or_create_user(session, user.id, user.full_name, user.username)
         await get_or_create_group(session, message.chat.id, message.chat.title or "")
         state = await get_or_create_state(session, user.id, message.chat.id)
-    await message.reply(f"<b>{esc(user.full_name)}</b>\n{format_amount(state.balance)}")
+
+    lines = [f"<b>{esc(user.full_name)}</b>", format_amount(state.balance)]
+    if state.reserved > 0:
+        lines.append(f"{pe('afk')} {format_amount(state.reserved)} locked in an open challenge")
+        lines.append(f"available: {format_amount(available_balance(state))}")
+    await message.reply("\n".join(lines))
 
 
-@router.message(Command("top"))
+@router.message(Command("top", "gtop"))
 async def top(message: Message):
+    """Global top 10 by balance. /top and /gtop are the same list now that
+    balances aren't split per group — kept both names since /top already
+    existed and /gtop is what was asked for."""
     async with get_session() as session:
         stmt = (
             select(PlayerState, User)
             .join(User, User.id == PlayerState.user_id)
-            .where(PlayerState.group_id == message.chat.id)
+            .where(PlayerState.group_id == GLOBAL_ID)
             .order_by(desc(PlayerState.balance))
             .limit(10)
         )
@@ -86,7 +102,7 @@ async def top(message: Message):
         await message.reply(f"{pe('top')} nobody's on the board yet. play something first.")
         return
 
-    lines = [f"{pe('top')} <b>PTS LEADERBOARD</b>", ""]
+    lines = [f"{pe('top')} <b>PTS GLOBAL LEADERBOARD</b>", ""]
     for i, (state, player) in enumerate(rows, start=1):
         lines.append(f"{i}. {esc(player.display_name)} · {format_amount(state.balance)}")
     await message.reply("\n".join(lines))
@@ -102,7 +118,7 @@ async def stats(message: Message):
 
         rank_stmt = (
             select(PlayerState.user_id)
-            .where(PlayerState.group_id == message.chat.id)
+            .where(PlayerState.group_id == GLOBAL_ID)
             .order_by(desc(PlayerState.balance))
         )
         ranking = [row[0] for row in (await session.execute(rank_stmt)).all()]

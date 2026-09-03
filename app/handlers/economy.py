@@ -38,7 +38,7 @@ async def farm(message: Message):
             return
 
         amount = random.randint(ECONOMY.FARM_MIN, ECONOMY.FARM_MAX)
-        await adjust_balance(session, state, amount, "farm", ref="daily claim")
+        await adjust_balance(session, state, amount, "farm", ref="daily claim", group_id=message.chat.id)
         await cd.set_cooldown(session, user.id, message.chat.id, "farm", ECONOMY.FARM_COOLDOWN_S)
 
     await message.reply(f"{pe('gold')} Daily claimed\n+{format_amount(amount)}\ncome back tomorrow.")
@@ -90,7 +90,7 @@ async def on_work_choice(callback: CallbackQuery):
 
         lo, hi = ECONOMY.WORK_JOBS[job]
         amount = random.randint(lo, hi)
-        await adjust_balance(session, state, amount, "work", ref=job)
+        await adjust_balance(session, state, amount, "work", ref=job, group_id=callback.message.chat.id)
         await cd.set_cooldown(session, user.id, callback.message.chat.id, "work", ECONOMY.WORK_COOLDOWN_S)
 
     await callback.message.edit_text(f"{pe('gold')} Work\nyou worked as a {job}.\n+{format_amount(amount)}")
@@ -113,7 +113,7 @@ async def loot(message: Message):
         await cd.set_cooldown(session, user.id, message.chat.id, "loot", ECONOMY.LOOT_COOLDOWN_S)
         if random.random() < ECONOMY.LOOT_SUCCESS_RATE:
             amount = random.randint(ECONOMY.LOOT_MIN, ECONOMY.LOOT_MAX)
-            await adjust_balance(session, state, amount, "loot", ref="found")
+            await adjust_balance(session, state, amount, "loot", ref="found", group_id=message.chat.id)
             text = f"{pe('loot')} Loot\nyou found {format_amount(amount)}."
         else:
             text = f"{pe('loot')} Loot\nnothing useful this time.\ntry again later."
@@ -152,12 +152,12 @@ async def hunt(message: Message):
         await cd.set_cooldown(session, user.id, message.chat.id, "hunt", ECONOMY.HUNT_COOLDOWN_S)
         if random.random() < ECONOMY.HUNT_SUCCESS_RATE:
             amount = int(stake * random.uniform(*ECONOMY.HUNT_REWARD_MULT))
-            await adjust_balance(session, state, amount, "hunt", ref="success")
+            await adjust_balance(session, state, amount, "hunt", ref="success", group_id=message.chat.id)
             line = react(win_category(amount), amount=amount)
             text = f"Hunt\ntarget secured.\n+{format_amount(amount)}\n{line}"
         else:
             loss = int(stake * random.uniform(*ECONOMY.HUNT_LOSS_MULT))
-            await adjust_balance(session, state, -loss, "hunt", ref="failure")
+            await adjust_balance(session, state, -loss, "hunt", ref="failure", group_id=message.chat.id)
             line = react(loss_category(loss), amount=loss)
             text = f"{pe('skull')} Hunt failed.\n-{format_amount(loss)}\n{line}"
 
@@ -180,11 +180,11 @@ async def luck(message: Message):
         await cd.set_cooldown(session, user.id, message.chat.id, "luck", ECONOMY.LUCK_COOLDOWN_S)
         if random.random() < ECONOMY.LUCK_POSITIVE_RATE:
             amount = random.randint(ECONOMY.LUCK_WIN_MIN, ECONOMY.LUCK_WIN_MAX)
-            await adjust_balance(session, state, amount, "luck", ref="good day")
+            await adjust_balance(session, state, amount, "luck", ref="good day", group_id=message.chat.id)
             text = f"{pe('gold')} Luck\ntoday is your day.\n+{format_amount(amount)}"
         else:
             amount = random.randint(ECONOMY.LUCK_LOSS_MIN, ECONOMY.LUCK_LOSS_MAX)
-            await adjust_balance(session, state, -amount, "luck", ref="bad day")
+            await adjust_balance(session, state, -amount, "luck", ref="bad day", group_id=message.chat.id)
             text = f"{pe('l2p')} Luck\nbad day.\n-{format_amount(amount)}"
 
     await message.reply(text)

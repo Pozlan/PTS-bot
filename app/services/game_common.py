@@ -42,7 +42,7 @@ async def finalize_pvp(session, challenge: Challenge, winner_id: int | None) -> 
 async def finalize_house(session, game: str, state: PlayerState, group_id: int, wager: int, won: bool | None) -> None:
     """won=None is a draw against the house — no balance change."""
     if won is not None:
-        await adjust_balance(session, state, wager if won else -wager, "game", ref=f"{game} house")
+        await adjust_balance(session, state, wager if won else -wager, "game", ref=f"{game} house", group_id=group_id)
     record_result(state, won)
     session.add(GameHistory(
         group_id=group_id, game=game, mode="house", player_id=state.user_id, opponent_id=None,

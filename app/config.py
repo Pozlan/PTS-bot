@@ -70,17 +70,18 @@ class EconomyConfig:
     LUCK_LOSS_MAX: int = 5000
 
     # House wager caps (0 = no cap -- unlimited wager allowed vs house)
-    RPS_MAX_HOUSE_WAGER: int = 0
-    COIN_MAX_HOUSE_WAGER: int = 0
-    DICE_MAX_HOUSE_WAGER: int = 0
+    RPS_MAX_HOUSE_WAGER: int = 250_000
+    COIN_MAX_HOUSE_WAGER: int = 250_000
+    DICE_MAX_HOUSE_WAGER: int = 250_000
     # HighLow (solo one-shot game vs house)
-    HIGHLOW_MAX_HOUSE_WAGER: int = 0
+    HIGHLOW_MAX_HOUSE_WAGER: int = 250_000
     HIGHLOW_MAX_ROUNDS: int = 15      # unused now that HighLow is one-shot, kept in case a streak mode returns
     BJ_MAX_HOUSE_WAGER: int = 250_000
-    SLOTS_MAX_WAGER: int = 1_000_000
+    SLOTS_MAX_WAGER: int = 250_000
 
     # PvP challenges
-    CHALLENGE_EXPIRATION_S: int = 5 * 60
+    CHALLENGE_EXPIRATION_S: int = 3 * 60
+    CHALLENGE_SWEEP_INTERVAL_S: int = 30  # how often the background task checks for expired challenges to refund
 
     # Robbery
     ROBBERY_COOLDOWN_S: int = 6 * 3600

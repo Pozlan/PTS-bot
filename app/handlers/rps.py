@@ -113,7 +113,7 @@ async def on_rps_choice(callback: CallbackQuery):
                 record_result(player_state, None)
                 result = "draw"
             elif outcome.name == "WIN":
-                await adjust_balance(session, player_state, challenge.wager, "game", ref=f"rps#{challenge.id} house win")
+                await adjust_balance(session, player_state, challenge.wager, "game", ref=f"rps#{challenge.id} house win", group_id=challenge.group_id)
                 record_result(player_state, True)
                 text_lines = [
                     f"{pe('bolt')} RPS",
@@ -126,7 +126,7 @@ async def on_rps_choice(callback: CallbackQuery):
                 ]
                 result = "win"
             else:
-                await adjust_balance(session, player_state, -challenge.wager, "game", ref=f"rps#{challenge.id} house loss")
+                await adjust_balance(session, player_state, -challenge.wager, "game", ref=f"rps#{challenge.id} house loss", group_id=challenge.group_id)
                 record_result(player_state, False)
                 text_lines = [
                     f"{pe('bolt')} RPS",

@@ -7,9 +7,10 @@ from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiohttp import web
 
-from app.config import settings
-from app.database.db import init_db
-from app.handlers import economy, wallet, social, rps, coin, dice, highlow, pvp_common, admin
+from app.config import settings, ECONOMY
+from app.database.db import init_db, get_session
+from app.handlers import economy, wallet, social, rps, coin, dice, highlow, pvp_common, admin, inbox
+from app.services.challenge import cancel_expired
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("ptsbot")
@@ -26,7 +27,29 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(highlow.router)
     dp.include_router(admin.router)
     dp.include_router(pvp_common.router)  # owns "acc:", "vsbot:", "coin:" callbacks for all games
+    dp.include_router(inbox.router)  # DM-only: /bal, /stats, /gtop, banner /start, fallback for everything else
     return dp
+
+
+async def _challenge_sweep_loop() -> None:
+    """Bug fix: hosted PvP challenges (rps/coin/dice/highlow) reserve the
+    creator's wager immediately but only got refunded if someone happened to
+    try accepting them after expiry -- if nobody ever did, the reservation
+    sat stuck forever. `/bal` shows the raw total balance, so a player could
+    see they "had" the pts while every wager check (balance - reserved) kept
+    rejecting them, with no visible reason why.
+
+    This loop is the actual fix: every CHALLENGE_SWEEP_INTERVAL_S seconds,
+    sweep for expired pending challenges and refund them automatically."""
+    while True:
+        try:
+            async with get_session() as session:
+                expired = await cancel_expired(session)
+                if expired:
+                    logger.info(f"challenge sweep: refunded {len(expired)} expired challenge(s)")
+        except Exception:
+            logger.exception("challenge sweep failed")
+        await asyncio.sleep(ECONOMY.CHALLENGE_SWEEP_INTERVAL_S)
 
 
 async def _run_health_server() -> None:
@@ -55,5 +78,6 @@ async def run() -> None:
     bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = build_dispatcher()
     await _run_health_server()
+    asyncio.create_task(_challenge_sweep_loop())
     logger.info("ptsbot starting polling")
     await dp.start_polling(bot)

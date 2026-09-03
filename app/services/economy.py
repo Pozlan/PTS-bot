@@ -22,6 +22,14 @@ from app.config import ECONOMY
 _SUFFIX_MULT = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000, "t": 1_000_000_000_000}
 _AMOUNT_RE = re.compile(r"^(\d+(?:\.\d+)?)([kmbt]?)$", re.IGNORECASE)
 
+# Global-economy migration: balances/reserved/streaks/protection used to be
+# stored one row per (user_id, group_id). As of the /gtop update there's a
+# single row per user instead, stored under this sentinel group_id so the
+# existing PlayerState table/unique-constraint didn't need a schema change.
+# Real Telegram group ids are always non-zero (negative for groups/supergroups),
+# so 0 can never collide with a real chat.
+GLOBAL_ID = 0
+
 
 class InvalidAmount(ValueError):
     pass
@@ -81,11 +89,16 @@ async def get_or_create_group(session: AsyncSession, group_id: int, title: str) 
     return group
 
 
-async def get_or_create_state(session: AsyncSession, user_id: int, group_id: int) -> PlayerState:
-    stmt = select(PlayerState).where(PlayerState.user_id == user_id, PlayerState.group_id == group_id)
+async def get_or_create_state(session: AsyncSession, user_id: int, group_id: int | None = None) -> PlayerState:
+    """Returns the player's single GLOBAL wallet (balance, reserved, streaks,
+    robbery stats, protection). `group_id` is accepted so every existing call
+    site (which passes message.chat.id) keeps working unchanged, but it's no
+    longer used to select the row -- every group now reads/writes the same
+    wallet. See GLOBAL_ID above."""
+    stmt = select(PlayerState).where(PlayerState.user_id == user_id, PlayerState.group_id == GLOBAL_ID)
     state = (await session.execute(stmt)).scalar_one_or_none()
     if state is None:
-        state = PlayerState(user_id=user_id, group_id=group_id, balance=ECONOMY.STARTING_BALANCE)
+        state = PlayerState(user_id=user_id, group_id=GLOBAL_ID, balance=ECONOMY.STARTING_BALANCE)
         session.add(state)
         await session.flush()
     return state
@@ -102,16 +115,22 @@ async def adjust_balance(
     delta: int,
     kind: str,
     ref: str = "",
+    group_id: int | None = None,
 ) -> None:
     """The ONLY function that should mutate PlayerState.balance.
     Refuses to let balance go negative and logs every change to the
-    append-only ledger. Caller controls the transaction boundary."""
+    append-only ledger. Caller controls the transaction boundary.
+
+    `group_id`: since state.group_id is now always the GLOBAL_ID sentinel
+    (see get_or_create_state), pass the real chat id here so the Transaction
+    ledger still records which group a bet/tip/rob actually happened in.
+    Falls back to state.group_id (i.e. GLOBAL_ID) if not given."""
     new_balance = state.balance + delta
     if new_balance < 0:
         raise InsufficientBalance(f"balance {state.balance} cannot cover delta {delta}")
     state.balance = new_balance
     session.add(Transaction(
-        group_id=state.group_id,
+        group_id=group_id if group_id is not None else state.group_id,
         user_id=state.user_id,
         kind=kind,
         amount=delta,

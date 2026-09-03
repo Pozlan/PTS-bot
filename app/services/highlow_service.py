@@ -45,10 +45,10 @@ async def resolve_guess(session, run: HighLowRun, direction: str) -> dict:
 
     if won:
         net = run.wager  # flat 2x: win back exactly what you wagered as profit
-        await adjust_balance(session, state, net, "game", ref=f"highlow#{run.id} win")
+        await adjust_balance(session, state, net, "game", ref=f"highlow#{run.id} win", group_id=run.group_id)
     else:
         net = -run.wager
-        await adjust_balance(session, state, -run.wager, "game", ref=f"highlow#{run.id} loss")
+        await adjust_balance(session, state, -run.wager, "game", ref=f"highlow#{run.id} loss", group_id=run.group_id)
 
     record_result(state, won)
     run.status = "resolved" if won else "busted"
