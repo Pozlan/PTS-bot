@@ -73,6 +73,12 @@ async def accept_challenge(session: AsyncSession, challenge_id: int, acceptor_id
 
     challenge.acceptor_id = acceptor_id
     challenge.status = "accepted"
+    # Reset the clock: RPS is the one game where "accepted" isn't final --
+    # both players still have to separately pick rock/paper/scissors after
+    # this. Give that phase its own fresh window instead of inheriting
+    # whatever was left of the original accept-me countdown (which could've
+    # been seconds from expiring the moment someone accepted it).
+    challenge.expires_at = _now() + timedelta(seconds=ECONOMY.CHALLENGE_EXPIRATION_S)
     await session.flush()
     return challenge
 
@@ -102,11 +108,24 @@ async def resolve_challenge(
 
 
 async def cancel_expired(session: AsyncSession) -> list[Challenge]:
-    """Call periodically (or lazily on access) to refund expired pending challenges."""
-    stmt = select(Challenge).where(Challenge.status == "pending", Challenge.expires_at < _now())
+    """Call periodically (or lazily on access) to refund expired challenges.
+    Covers BOTH states that can go stale:
+      - "pending": nobody accepted in time -> refund the creator only.
+      - "accepted": this used to be missed entirely. RPS is the one game
+        where accepting doesn't immediately resolve -- both players still
+        have to pick a move, and if one of them never does, the challenge
+        just sat here forever with BOTH wagers reserved. Refund both sides."""
+    stmt = select(Challenge).where(
+        Challenge.status.in_(("pending", "accepted")), Challenge.expires_at < _now()
+    )
     expired = list((await session.execute(stmt)).scalars())
     for challenge in expired:
-        await _refund_creator(session, challenge)
+        if challenge.status == "accepted":
+            await _refund_creator(session, challenge)
+            acceptor_state = await get_or_create_state(session, challenge.acceptor_id, challenge.group_id)
+            await release_reservation(session, acceptor_state, challenge.wager)
+        else:
+            await _refund_creator(session, challenge)
         challenge.status = "expired"
     return expired
 
