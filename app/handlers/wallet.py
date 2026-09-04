@@ -4,7 +4,7 @@ from aiogram.types import Message
 from sqlalchemy import select, desc
 
 from app.database.db import get_session
-from app.database.models import PlayerState, User
+from app.database.models import PlayerState, User, Transaction
 from app.services.economy import (
     get_or_create_user, get_or_create_group, get_or_create_state, format_amount,
     available_balance, GLOBAL_ID,
@@ -18,18 +18,15 @@ router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
 @router.message(Command("start"))
 async def start(message: Message):
-    if message.chat.type not in ("group", "supergroup"):
-        await message.reply("add me to a group chat to play — pts only work there.")
-        return
+    """Kept short and formal on purpose -- the DM /start (inbox.py) carries
+    the full welcome copy, banner, and PTS mark; this one just confirms the
+    bot's alive in the group and points at /help."""
     async with get_session() as session:
         user = message.from_user
         await get_or_create_user(session, user.id, user.full_name, user.username)
         await get_or_create_group(session, message.chat.id, message.chat.title or "")
         await get_or_create_state(session, user.id, message.chat.id)
-    await message.reply(
-        "Welcome to PTS [ 5893321843149902412 ] Your points. Your luck. "
-        "Your problem. Use <code>/help</code> to see the commands."
-    )
+    await message.reply(f"{pe('play')} <b>pts</b> is live in this chat. use <code>/help</code> to see the commands.")
 
 
 @router.message(Command("help"))
@@ -38,28 +35,29 @@ async def help_cmd(message: Message):
         f"{pe('play')} <b>pts commands</b>\n"
         "\n"
         "<b>Earn</b>\n"
-        "<code>/farm</code> — daily claim\n"
-        "<code>/work</code> — take a job\n"
-        "<code>/loot</code> — chance find\n"
-        "<code>/hunt &lt;amount&gt;</code> — risk it for more\n"
-        "<code>/luck</code> — daily gamble\n"
+        "<code>/farm</code>: daily claim\n"
+        "<code>/work</code>: take a job\n"
+        "<code>/loot</code>: chance find\n"
+        "<code>/hunt &lt;amount&gt;</code>: risk it for more\n"
+        "<code>/luck</code>: daily gamble\n"
         "\n"
         "<b>Play</b>\n"
-        "<code>/rps &lt;amount&gt;</code> — rock paper scissors\n"
-        "<code>/coin &lt;amount&gt;</code> — coin flip\n"
-        "<code>/dice &lt;amount&gt;</code> — dice duel\n"
-        "<code>/highlow &lt;amount&gt;</code> — guess the next card, cash out anytime\n"
-        "<i>(blackjack, slots — coming soon)</i>\n"
+        "<code>/rps &lt;amount&gt;</code>: rock paper scissors\n"
+        "<code>/coin &lt;amount&gt;</code>: coin flip\n"
+        "<code>/dice &lt;amount&gt;</code>: dice duel\n"
+        "<code>/highlow &lt;amount&gt;</code>: guess the next card, cash out anytime\n"
+        "<i>(blackjack, slots: coming soon)</i>\n"
         "\n"
         "<b>Social</b>\n"
-        "<code>/tip &lt;amount&gt;</code> — reply to someone to send them pts\n"
-        "<code>/rob</code> — reply to someone to try to rob them\n"
-        "<code>/protect</code> — 24h robbery shield\n"
+        "<code>/tip &lt;amount&gt;</code>: reply to someone to send them pts\n"
+        "<code>/rob</code>: reply to someone to try to rob them\n"
+        "<code>/protect</code>: 24h robbery shield\n"
         "\n"
         "<b>You</b>\n"
-        "<code>/bal</code> — your balance (global — same everywhere)\n"
-        "<code>/stats</code> — your record\n"
-        "<code>/top</code> or <code>/gtop</code> — global leaderboard\n"
+        "<code>/bal</code>: your balance, global, same everywhere\n"
+        "<code>/stats</code>: your record\n"
+        "<code>/top</code>: leaderboard for this group\n"
+        "<code>/gtop</code>: global leaderboard, every group\n"
         "\n"
         "DM me <code>/bal</code>, <code>/stats</code>, or <code>/gtop</code> any time to check in privately."
     )
@@ -83,11 +81,39 @@ async def bal(message: Message):
     await message.reply("\n".join(lines))
 
 
-@router.message(Command("top", "gtop"))
+@router.message(Command("top"))
 async def top(message: Message):
-    """Global top 10 by balance. /top and /gtop are the same list now that
-    balances aren't split per group — kept both names since /top already
-    existed and /gtop is what was asked for."""
+    """Group-local leaderboard. Balances are global (see economy.GLOBAL_ID),
+    so 'local to this group' means: rank by global balance, but only
+    include players with actual transaction history in THIS group -- pulled
+    from the ledger, which still records the real group_id per action even
+    though the wallet itself isn't split per group anymore."""
+    async with get_session() as session:
+        group_member_ids = select(Transaction.user_id).where(Transaction.group_id == message.chat.id).distinct()
+        stmt = (
+            select(PlayerState, User)
+            .join(User, User.id == PlayerState.user_id)
+            .where(PlayerState.group_id == GLOBAL_ID, PlayerState.user_id.in_(group_member_ids))
+            .order_by(desc(PlayerState.balance))
+            .limit(10)
+        )
+        rows = (await session.execute(stmt)).all()
+
+    if not rows:
+        await message.reply(f"{pe('top')} nobody's played in this group yet.")
+        return
+
+    lines = [f"{pe('top')} <b>LEADERBOARD</b>", ""]
+    for i, (state, player) in enumerate(rows, start=1):
+        lines.append(f"{i}. {esc(player.display_name)} · {format_amount(state.balance)}")
+    lines.append("")
+    lines.append("this group only. <code>/gtop</code> for everyone, everywhere.")
+    await message.reply("\n".join(lines))
+
+
+@router.message(Command("gtop"))
+async def gtop(message: Message):
+    """True global top 10, every player, every group."""
     async with get_session() as session:
         stmt = (
             select(PlayerState, User)

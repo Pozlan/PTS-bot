@@ -49,6 +49,7 @@ EMOJI_IDS: dict[str, tuple[str, str]] = {
     "skull": ("5462882007451185227", "💀"),
     "wager": ("5226928895189598791", "🥷"),
     "bolt": ("5893450623449305489", "⚡"),
+    "logo": ("5893321843149902412", "✨"),  # PTS mark, used in the DM /start intro
 }
 
 

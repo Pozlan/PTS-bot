@@ -97,7 +97,7 @@ async def on_highlow_action(callback: CallbackQuery):
         net = result["net"]
         text = (
             "🃏 Higher / Lower\n\n"
-            f"Card was <b>{first_card}</b>, next was <b>{second_card}</b> — correct!\n\n"
+            f"Card was <b>{first_card}</b>, next was <b>{second_card}</b>. correct!\n\n"
             f"{pe('top')} <b>YOU WIN</b>\n"
             f"+{format_amount(net)}\n"
             f"{react(win_category(net))}"

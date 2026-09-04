@@ -166,6 +166,8 @@ async def hunt(message: Message):
 
 @router.message(Command("luck"))
 async def luck(message: Message):
+    """Gains-only -- unlike /hunt, there's no downside here at all. Three
+    tiers: rare zero, common medium, rare big."""
     async with get_session() as session:
         user = message.from_user
         await get_or_create_user(session, user.id, user.full_name, user.username)
@@ -178,13 +180,16 @@ async def luck(message: Message):
             return
 
         await cd.set_cooldown(session, user.id, message.chat.id, "luck", ECONOMY.LUCK_COOLDOWN_S)
-        if random.random() < ECONOMY.LUCK_POSITIVE_RATE:
-            amount = random.randint(ECONOMY.LUCK_WIN_MIN, ECONOMY.LUCK_WIN_MAX)
-            await adjust_balance(session, state, amount, "luck", ref="good day", group_id=message.chat.id)
-            text = f"{pe('gold')} Luck\ntoday is your day.\n+{format_amount(amount)}"
+        roll = random.random()
+        if roll < ECONOMY.LUCK_ZERO_RATE:
+            text = f"{pe('ns')} Luck\nnothing this time. try again tomorrow."
+        elif roll < ECONOMY.LUCK_ZERO_RATE + ECONOMY.LUCK_BIG_RATE:
+            amount = random.randint(ECONOMY.LUCK_BIG_MIN, ECONOMY.LUCK_BIG_MAX)
+            await adjust_balance(session, state, amount, "luck", ref="big win", group_id=message.chat.id)
+            text = f"{pe('pog')} Luck\ntoday is your day.\n+{format_amount(amount)}"
         else:
-            amount = random.randint(ECONOMY.LUCK_LOSS_MIN, ECONOMY.LUCK_LOSS_MAX)
-            await adjust_balance(session, state, -amount, "luck", ref="bad day", group_id=message.chat.id)
-            text = f"{pe('l2p')} Luck\nbad day.\n-{format_amount(amount)}"
+            amount = random.randint(ECONOMY.LUCK_MEDIUM_MIN, ECONOMY.LUCK_MEDIUM_MAX)
+            await adjust_balance(session, state, amount, "luck", ref="good day", group_id=message.chat.id)
+            text = f"{pe('gold')} Luck\nnice pull.\n+{format_amount(amount)}"
 
     await message.reply(text)

@@ -122,7 +122,7 @@ async def rob(message: Message):
         robber_protected = bool(robber_state.protected_until and robber_state.protected_until > now)
         robber_door_open = bool(robber_state.door_open_until and robber_state.door_open_until > now)
         if robber_protected and not robber_door_open:
-            await message.reply(f"{pe('save')} you're protected right now — open your door first if you want to rob.")
+            await message.reply(f"{pe('save')} you're protected right now, open your door first if you want to rob.")
             return
 
         is_protected = bool(target_state.protected_until and target_state.protected_until > now)
@@ -140,18 +140,15 @@ async def rob(message: Message):
 
         await cd.set_cooldown(session, robber.id, message.chat.id, "rob", ECONOMY.ROBBERY_COOLDOWN_S)
 
-        if random.random() < ECONOMY.ROBBERY_SUCCESS_RATE:
-            steal = max(1, int(target_state.balance * ECONOMY.ROBBERY_STEAL_PCT))
-            await adjust_balance(session, target_state, -steal, "rob", ref=f"robbed by {robber.id}", group_id=message.chat.id)
-            await adjust_balance(session, robber_state, steal, "rob", ref=f"robbed {target.id}", group_id=message.chat.id)
-            robber_state.robberies_success += 1
-            target_state.times_robbed += 1
-            text = react("rob_success", robber=esc(robber.full_name), target=esc(target.full_name), amount=steal)
-        else:
-            # failed robbery costs the robber nothing but the cooldown --
-            # no balance penalty on a miss
-            robber_state.robberies_failed += 1
-            text = react("rob_failure", target=esc(target.full_name))
+        # No random miss chance -- an unprotected target has no way to
+        # resist. Protection (see checks above) is the only defense.
+        pct = random.uniform(ECONOMY.ROBBERY_STEAL_PCT_MIN, ECONOMY.ROBBERY_STEAL_PCT_MAX)
+        steal = max(1, int(target_state.balance * pct))
+        await adjust_balance(session, target_state, -steal, "rob", ref=f"robbed by {robber.id}", group_id=message.chat.id)
+        await adjust_balance(session, robber_state, steal, "rob", ref=f"robbed {target.id}", group_id=message.chat.id)
+        robber_state.robberies_success += 1
+        target_state.times_robbed += 1
+        text = react("rob_success", robber=esc(robber.full_name), target=esc(target.full_name), amount=steal)
 
     await message.reply(text)
 

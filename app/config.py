@@ -63,11 +63,14 @@ class EconomyConfig:
 
     # /luck
     LUCK_COOLDOWN_S: int = 24 * 3600
-    LUCK_POSITIVE_RATE: float = 0.55
-    LUCK_WIN_MIN: int = 500
-    LUCK_WIN_MAX: int = 12000
-    LUCK_LOSS_MIN: int = 300
-    LUCK_LOSS_MAX: int = 5000
+    # /luck is gains-only (see handlers/economy.py::luck) -- three tiers:
+    # rare zero, common medium, rare big. No loss branch at all.
+    LUCK_ZERO_RATE: float = 0.10   # rare: nothing this time
+    LUCK_BIG_RATE: float = 0.15    # rare: big win (remainder, 0.75, is the common medium tier)
+    LUCK_MEDIUM_MIN: int = 500
+    LUCK_MEDIUM_MAX: int = 5000
+    LUCK_BIG_MIN: int = 8000
+    LUCK_BIG_MAX: int = 25000
 
     # House wager caps (0 = no cap -- unlimited wager allowed vs house)
     RPS_MAX_HOUSE_WAGER: int = 250_000
@@ -84,9 +87,12 @@ class EconomyConfig:
     CHALLENGE_SWEEP_INTERVAL_S: int = 30  # how often the background task checks for expired challenges to refund
 
     # Robbery
-    ROBBERY_COOLDOWN_S: int = 6 * 3600
-    ROBBERY_SUCCESS_RATE: float = 0.45
-    ROBBERY_STEAL_PCT: float = 0.20           # flat -- of target's balance, on success
+    ROBBERY_COOLDOWN_S: int = 20 * 60         # 20 min between attempts
+    # No more random success roll -- an unprotected target is always
+    # robbable (protection is the only defense, not luck). Steal % is
+    # randomized per-hit instead of a flat cut.
+    ROBBERY_STEAL_PCT_MIN: float = 0.15
+    ROBBERY_STEAL_PCT_MAX: float = 0.20
     ROBBERY_MIN_TARGET_BALANCE: int = 5000
     # No failure penalty -- a failed robbery costs the robber nothing but
     # the cooldown. Steal is currently flat 20% on success (was a random

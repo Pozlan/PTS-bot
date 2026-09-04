@@ -35,8 +35,10 @@ async def start_dm(message: Message):
         await get_or_create_state(session, user.id)
 
     caption = (
-        "Welcome to PTS [ 5893321843149902412 ] Your points. Your luck. "
-        "Your problem. Use <code>/help</code> to see the commands."
+        f"Welcome to PTS{pe('logo')}\n\n"
+        "Play games, challenge your friends and earn PTS\n\n"
+        "Think you've got what it takes huh?\n"
+        "/help to see the games."
     )
     if BANNER_PATH.exists():
         await message.answer_photo(FSInputFile(BANNER_PATH), caption=caption)
@@ -87,7 +89,7 @@ async def stats_dm(message: Message):
     await message.reply("\n".join(lines))
 
 
-@router.message(Command("top", "gtop"))
+@router.message(Command("gtop"))
 async def gtop_dm(message: Message):
     async with get_session() as session:
         stmt = (
@@ -109,11 +111,18 @@ async def gtop_dm(message: Message):
     await message.reply("\n".join(lines))
 
 
+@router.message(Command("top"))
+async def top_dm(message: Message):
+    """/top is group-local (see handlers/wallet.py::top), which means
+    nothing in DM. Redirect to /gtop instead of silently no-op'ing."""
+    await message.reply(f"{pe('top')} <code>/top</code> is per-group, use <code>/gtop</code> here instead.")
+
+
 @router.message(Command("help"))
 async def help_dm(message: Message):
     await message.reply(
         f"{pe('play')} in DM you can check <code>/bal</code>, <code>/stats</code>, "
-        "and <code>/gtop</code> — that's it here.\nadd me to a group chat to actually play."
+        "and <code>/gtop</code>, that's it here.\nadd me to a group chat to actually play."
     )
 
 
@@ -123,6 +132,6 @@ async def fallback_dm(message: Message):
     Catches games/farm/tip/rob/etc. attempts specifically since those only
     exist as group-only routers and would otherwise be silently ignored."""
     await message.reply(
-        f"{pe('afk')} that one's group-only — add me to a group chat to play.\n"
+        f"{pe('afk')} that one's group-only, add me to a group chat to play.\n"
         "in here you can check <code>/bal</code>, <code>/stats</code>, and <code>/gtop</code>."
     )

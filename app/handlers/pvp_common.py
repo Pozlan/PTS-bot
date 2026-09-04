@@ -184,7 +184,7 @@ async def on_vs_bot(callback: CallbackQuery):
 
     lines = [_game_header(game, " vs House"), summary, ""]
     if won is None:
-        lines.append(f"{pe('wp')} DRAW — wager returned.")
+        lines.append(f"{pe('wp')} DRAW. wager returned.")
         lines.append(react("draw"))
     elif won:
         lines.append(f"{pe('top')} <b>YOU WIN</b>")
