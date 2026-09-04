@@ -94,13 +94,24 @@ async def get_or_create_state(session: AsyncSession, user_id: int, group_id: int
     robbery stats, protection). `group_id` is accepted so every existing call
     site (which passes message.chat.id) keeps working unchanged, but it's no
     longer used to select the row -- every group now reads/writes the same
-    wallet. See GLOBAL_ID above."""
+    wallet. See GLOBAL_ID above.
+
+    Also self-heals this player's own expired challenge reservations every
+    time it's called (deferred import avoids a circular import with
+    challenge.py, which itself imports get_or_create_state). This means
+    every /bal check, every new wager, every tip/rob touches this first --
+    a stuck reservation can't survive past the moment you next do anything,
+    independent of whether the periodic background sweep (bot.py) is alive."""
     stmt = select(PlayerState).where(PlayerState.user_id == user_id, PlayerState.group_id == GLOBAL_ID)
     state = (await session.execute(stmt)).scalar_one_or_none()
     if state is None:
         state = PlayerState(user_id=user_id, group_id=GLOBAL_ID, balance=ECONOMY.STARTING_BALANCE)
         session.add(state)
         await session.flush()
+
+    from app.services.challenge import cancel_expired_for_user
+    await cancel_expired_for_user(session, user_id)
+
     return state
 
 

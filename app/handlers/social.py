@@ -66,6 +66,10 @@ async def tip(message: Message):
 
 @router.message(Command("protect"))
 async def protect(message: Message):
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Open door · 5m", callback_data="door:open")
+    ]])
+
     async with get_session() as session:
         user = message.from_user
         await get_or_create_user(session, user.id, user.full_name, user.username)
@@ -74,15 +78,22 @@ async def protect(message: Message):
 
         now = utcnow()
         if state.protected_until and state.protected_until > now:
-            await message.reply(f"{pe('save')} you're already protected.")
+            # BUG FIX: this branch replied with plain text and no keyboard
+            # at all, so re-checking /protect while already protected made
+            # the door button disappear entirely instead of always being
+            # reachable. Same button, same behavior, every time -- unless
+            # the door's already open right now, in which case there's
+            # nothing to open.
+            door_open = bool(state.door_open_until and state.door_open_until > now)
+            if door_open:
+                await message.reply(f"{pe('save')} you're already protected, and your door's already open right now.")
+            else:
+                await message.reply(f"{pe('save')} you're already protected.", reply_markup=kb)
             return
 
         state.protected_until = now + timedelta(seconds=ECONOMY.PROTECTION_DURATION_S)
         state.door_open_until = None
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Open door · 5m", callback_data="door:open")
-    ]])
     await message.reply(
         f"{pe('save')} <b>Protection active</b>\nno one can rob you for <b>24h</b>.\nyou're also locked out of robbery.",
         reply_markup=kb,
