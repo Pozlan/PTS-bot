@@ -171,6 +171,144 @@ async def _expire_one(session: AsyncSession, challenge: Challenge) -> None:
 
 async def _refund_creator(session: AsyncSession, challenge: Challenge) -> None:
     creator_state = await get_or_create_state(session, challenge.creator_id, challenge.group_id)
+    await release_reservation(session, creator_state, challenge.wager)
+    challenge = Challenge(
+        group_id=group_id,
+        game=game,
+        creator_id=creator_id,
+        wager=wager,
+        status="pending",
+        expires_at=_now() + timedelta(seconds=ECONOMY.CHALLENGE_EXPIRATION_S),
+        state=json.dumps(state or {}),
+    )
+    session.add(challenge)
+    await session.flush()
+    return challenge
+
+
+async def get_challenge(session: AsyncSession, challenge_id: int) -> Challenge | None:
+    return await session.get(Challenge, challenge_id)
+
+
+async def accept_challenge(session: AsyncSession, challenge_id: int, acceptor_id: int) -> Challenge:
+    challenge = await session.get(Challenge, challenge_id)
+    if challenge is None:
+        raise ChallengeError("this challenge no longer exists.")
+    if challenge.status != "pending":
+        raise ChallengeError("this challenge has already been settled.")
+    if challenge.expires_at < _now():
+        await _expire_one(session, challenge)
+        raise ChallengeError("this challenge expired.")
+    if acceptor_id == challenge.creator_id:
+        raise ChallengeError("you can't accept your own challenge.")
+
+    acceptor_state = await get_or_create_state(session, acceptor_id, challenge.group_id)
+    try:
+        await reserve(session, acceptor_state, challenge.wager)
+    except InsufficientBalance:
+        raise ChallengeError("not enough pts to accept this.")
+
+    challenge.acceptor_id = acceptor_id
+    challenge.status = "accepted"
+    # Reset the clock: RPS is the one game where "accepted" isn't final --
+    # both players still have to separately pick rock/paper/scissors after
+    # this. Give that phase its own fresh window instead of inheriting
+    # whatever was left of the original accept-me countdown.
+    challenge.expires_at = _now() + timedelta(seconds=ECONOMY.CHALLENGE_EXPIRATION_S)
+    await session.flush()
+    return challenge
+
+
+async def resolve_challenge(
+    session: AsyncSession, challenge: Challenge, winner_id: int | None
+) -> None:
+    """winner_id=None means a draw — both reservations released, no transfer."""
+    creator_state = await get_or_create_state(session, challenge.creator_id, challenge.group_id)
+    acceptor_state = await get_or_create_state(session, challenge.acceptor_id, challenge.group_id)
+    pot = challenge.wager * 2
+
+    await release_reservation(session, creator_state, challenge.wager)
+    await release_reservation(session, acceptor_state, challenge.wager)
+
+    from app.services.economy import adjust_balance
+    if winner_id is None:
+        pass  # nothing to transfer, reservations already released = wagers returned
+    elif winner_id == challenge.creator_id:
+        await adjust_balance(session, creator_state, challenge.wager, "game", ref=f"{challenge.game}#{challenge.id} win", group_id=challenge.group_id)
+        await adjust_balance(session, acceptor_state, -challenge.wager, "game", ref=f"{challenge.game}#{challenge.id} loss", group_id=challenge.group_id)
+    else:
+        await adjust_balance(session, acceptor_state, challenge.wager, "game", ref=f"{challenge.game}#{challenge.id} win", group_id=challenge.group_id)
+        await adjust_balance(session, creator_state, -challenge.wager, "game", ref=f"{challenge.game}#{challenge.id} loss", group_id=challenge.group_id)
+
+    challenge.status = "resolved"
+
+
+async def force_cancel_all(session: AsyncSession) -> list[Challenge]:
+    """Manual escape hatch for /reset (admin.py) -- same refund logic as
+    cancel_expired, but with NO expiry check at all. Clears every open
+    challenge bot-wide right now, regardless of its timer. Meant for
+    "something's stuck and I don't want to wait/debug it", not routine use."""
+    stmt = select(Challenge).where(Challenge.status.in_(("pending", "accepted")))
+    open_challenges = list((await session.execute(stmt)).scalars())
+    for challenge in open_challenges:
+        await _expire_one(session, challenge)
+    return open_challenges
+
+
+async def cancel_expired(session: AsyncSession) -> list[Challenge]:
+    """Background sweep (bot.py, every 30s): refunds every expired challenge
+    in the whole database, regardless of who's involved. Covers BOTH states
+    that can go stale:
+      - "pending": nobody accepted in time -> refund the creator only.
+      - "accepted": RPS is the one game where accepting doesn't immediately
+        resolve -- both players still have to pick a move. If one never
+        does, this used to sit forever with BOTH wagers reserved."""
+    stmt = select(Challenge).where(
+        Challenge.status.in_(("pending", "accepted")), Challenge.expires_at < _now()
+    )
+    expired = list((await session.execute(stmt)).scalars())
+    for challenge in expired:
+        await _expire_one(session, challenge)
+    return expired
+
+
+async def cancel_expired_for_user(session: AsyncSession, user_id: int) -> list[Challenge]:
+    """Second safety net, independent of the background loop. Scoped to one
+    player and cheap enough to run on every balance touch -- called from
+    economy.get_or_create_state, so ANY time this player's balance is read
+    or written anywhere in the bot (/bal, hosting a new game, tipping,
+    robbing...), their own stale reservations clear first. This means a
+    stuck reservation can't survive past the next time you touch your
+    balance, even if the background loop were somehow not running."""
+    stmt = select(Challenge).where(
+        Challenge.status.in_(("pending", "accepted")),
+        Challenge.expires_at < _now(),
+        (Challenge.creator_id == user_id) | (Challenge.acceptor_id == user_id),
+    )
+    expired = list((await session.execute(stmt)).scalars())
+    for challenge in expired:
+        await _expire_one(session, challenge)
+    return expired
+
+
+async def _expire_one(session: AsyncSession, challenge: Challenge) -> None:
+    # Status flips to "expired" FIRST, before either refund call. Both
+    # refunds go through get_or_create_state, which now ALSO self-heals
+    # expired challenges for whichever player it's fetching (see
+    # economy.py). If status were still "pending"/"accepted" when that
+    # nested self-heal runs, its query would find THIS SAME challenge
+    # again and recurse forever. Flipping status first means the nested
+    # query's status filter no longer matches it.
+    was_accepted = challenge.status == "accepted"
+    challenge.status = "expired"
+    await _refund_creator(session, challenge)
+    if was_accepted:
+        acceptor_state = await get_or_create_state(session, challenge.acceptor_id, challenge.group_id)
+        await release_reservation(session, acceptor_state, challenge.wager)
+
+
+async def _refund_creator(session: AsyncSession, challenge: Challenge) -> None:
+    creator_state = await get_or_create_state(session, challenge.creator_id, challenge.group_id)
     await release_reservation(session, creator_state, challenge.wager)    challenge = Challenge(
         group_id=group_id,
         game=game,
