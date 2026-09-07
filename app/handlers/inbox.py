@@ -39,7 +39,7 @@ async def start_dm(message: Message):
         "Play games, challenge your friends and earn PTS\n\n"
         "Think you've got what it takes huh?\n"
         "/help to see the games.\n\n"
-        f"{pe('play')} no group yet? join @Medhanit to play with others."
+        f"{pe('play')} no group yet? join @PozzVerse to play with others."
     )
     if BANNER_PATH.exists():
         await message.answer_photo(FSInputFile(BANNER_PATH), caption=caption)
