@@ -134,7 +134,7 @@ async def fallback_dm(message: Message):
     Catches games/farm/tip/rob/etc. attempts specifically since those only
     exist as group-only routers and would otherwise be silently ignored."""
     await message.reply(
-        f"{pe('afk')} that one's group-only. join @Medhanit to play.\n"
+        f"{pe('afk')} that one's group-only. join @PozzVerse play.\n"
         "in here you can check <code>/bal</code>, <code>/stats</code>, and <code>/gtop</code>."
     )
     
