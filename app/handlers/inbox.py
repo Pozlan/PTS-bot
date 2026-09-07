@@ -38,7 +38,8 @@ async def start_dm(message: Message):
         f"Welcome to PTS{pe('logo')}\n\n"
         "Play games, challenge your friends and earn PTS\n\n"
         "Think you've got what it takes huh?\n"
-        "/help to see the games."
+        "/help to see the games.\n\n"
+        f"{pe('play')} no group yet? join @Medhanit to play with others."
     )
     if BANNER_PATH.exists():
         await message.answer_photo(FSInputFile(BANNER_PATH), caption=caption)
@@ -122,7 +123,8 @@ async def top_dm(message: Message):
 async def help_dm(message: Message):
     await message.reply(
         f"{pe('play')} in DM you can check <code>/bal</code>, <code>/stats</code>, "
-        "and <code>/gtop</code>, that's it here.\nadd me to a group chat to actually play."
+        "and <code>/gtop</code>, that's it here.\n"
+        "want to actually play? join @Medhanit."
     )
 
 
@@ -132,6 +134,7 @@ async def fallback_dm(message: Message):
     Catches games/farm/tip/rob/etc. attempts specifically since those only
     exist as group-only routers and would otherwise be silently ignored."""
     await message.reply(
-        f"{pe('afk')} that one's group-only, add me to a group chat to play.\n"
+        f"{pe('afk')} that one's group-only. join @Medhanit to play.\n"
         "in here you can check <code>/bal</code>, <code>/stats</code>, and <code>/gtop</code>."
     )
+    
