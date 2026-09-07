@@ -45,7 +45,7 @@ EMOJI_IDS: dict[str, tuple[str, str]] = {
     "play": ("5453921696354419743", "🎮"),
     "afk": ("5462990652943904884", "⏳"),
     "bff": ("5373110220232870002", "💸"),
-    "pts": ("5199552030615558774", "💰"),
+    "pts": ("5287231198098117669", "💰"),
     "skull": ("5462882007451185227", "💀"),
     "wager": ("5226928895189598791", "🥷"),
     "bolt": ("5893450623449305489", "⚡"),
@@ -61,3 +61,4 @@ def pe(key: str) -> str:
         return "❓"
     custom_id, fallback = EMOJI_IDS[key]
     return f'<tg-emoji emoji-id="{custom_id}">{fallback}</tg-emoji>'
+    
