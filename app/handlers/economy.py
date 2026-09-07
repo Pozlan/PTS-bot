@@ -145,6 +145,9 @@ async def hunt(message: Message):
         if stake < ECONOMY.HUNT_MIN_STAKE:
             await message.reply(f"minimum hunt stake is {format_amount(ECONOMY.HUNT_MIN_STAKE)}.")
             return
+        if stake > ECONOMY.HUNT_MAX_STAKE:
+            await message.reply(f"max hunt stake is {format_amount(ECONOMY.HUNT_MAX_STAKE)}.")
+            return
         if stake > available_balance(state):
             await message.reply("you don't have that much to risk.")
             return
@@ -193,3 +196,4 @@ async def luck(message: Message):
             text = f"{pe('gold')} Luck\nnice pull.\n+{format_amount(amount)}"
 
     await message.reply(text)
+            
