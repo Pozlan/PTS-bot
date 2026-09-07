@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Challenge, PlayerState
-from app.services.economy import get_or_create_state, reserve, release_reservation, InsufficientBalance
+from app.services.economy import get_or_create_state, reserve, release_reservation, InsufficientBalance, GLOBAL_ID
 from app.config import ECONOMY
 from app.utils.time import utcnow as _now
 
@@ -105,6 +105,39 @@ async def resolve_challenge(
     challenge.status = "resolved"
 
 
+async def reconcile_reservations(session: AsyncSession) -> list[tuple[int, int, int]]:
+    """Manual repair for /reconcile (admin.py). Recomputes every player's
+    `reserved` from what's ACTUALLY still open in the challenges table right
+    now, instead of trusting the stored number. Fixes drift like: a
+    reservation that lost its backing challenge somewhere along the way (a
+    data-migration edge case, a bug since patched, whatever) and has been
+    sitting there with nothing left to ever expire it -- `/reset` can't
+    touch these since there's no open challenge for it to cancel.
+
+    Returns (user_id, old_reserved, new_reserved) for every player whose
+    stored value didn't match reality, so it can be reported precisely
+    rather than "everyone's reserved got zeroed, hope that was right."."""
+    open_stmt = select(Challenge).where(Challenge.status.in_(("pending", "accepted")))
+    open_challenges = list((await session.execute(open_stmt)).scalars())
+
+    actual: dict[int, int] = {}
+    for c in open_challenges:
+        actual[c.creator_id] = actual.get(c.creator_id, 0) + c.wager
+        if c.acceptor_id is not None:
+            actual[c.acceptor_id] = actual.get(c.acceptor_id, 0) + c.wager
+
+    stmt = select(PlayerState).where(PlayerState.group_id == GLOBAL_ID, PlayerState.reserved != 0)
+    states = list((await session.execute(stmt)).scalars())
+
+    fixed = []
+    for state in states:
+        correct = actual.get(state.user_id, 0)
+        if state.reserved != correct:
+            fixed.append((state.user_id, state.reserved, correct))
+            state.reserved = correct
+    return fixed
+
+
 async def force_cancel_all(session: AsyncSession) -> list[Challenge]:
     """Manual escape hatch for /reset (admin.py) -- same refund logic as
     cancel_expired, but with NO expiry check at all. Clears every open
@@ -172,4 +205,4 @@ async def _expire_one(session: AsyncSession, challenge: Challenge) -> None:
 async def _refund_creator(session: AsyncSession, challenge: Challenge) -> None:
     creator_state = await get_or_create_state(session, challenge.creator_id, challenge.group_id)
     await release_reservation(session, creator_state, challenge.wager)
-          
+  
