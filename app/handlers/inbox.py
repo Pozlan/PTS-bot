@@ -124,7 +124,7 @@ async def help_dm(message: Message):
     await message.reply(
         f"{pe('play')} in DM you can check <code>/bal</code>, <code>/stats</code>, "
         "and <code>/gtop</code>, that's it here.\n"
-        "want to actually play? join @Medhanit."
+        "want to actually play? join @PozzVerse."
     )
 
 
