@@ -58,6 +58,7 @@ class EconomyConfig:
     HUNT_COOLDOWN_S: int = 4 * 3600
     HUNT_SUCCESS_RATE: float = 0.5
     HUNT_MIN_STAKE: int = 200
+    HUNT_MAX_STAKE: int = 250_000          # was uncapped -- let a big enough stake x4 reward snowball a balance
     HUNT_REWARD_MULT: tuple = (1.5, 4.0)   # win: stake * random in this range
     HUNT_LOSS_MULT: tuple = (0.5, 1.0)     # loss: stake * random in this range, deducted
 
