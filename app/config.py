@@ -80,6 +80,7 @@ class EconomyConfig:
     # HighLow (solo one-shot game vs house)
     HIGHLOW_MAX_HOUSE_WAGER: int = 250_000
     HIGHLOW_MAX_ROUNDS: int = 15      # unused now that HighLow is one-shot, kept in case a streak mode returns
+    DART_MAX_WAGER: int = 250_000
     BJ_MAX_HOUSE_WAGER: int = 250_000
     SLOTS_MAX_WAGER: int = 250_000
 
