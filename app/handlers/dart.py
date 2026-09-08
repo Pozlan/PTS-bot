@@ -67,7 +67,7 @@ async def dart_cmd(message: Message):
     throw_msg = await message.answer_dice(emoji="🎯")
     value = throw_msg.dice.value
 
-    lines = [f"{pe('play')} <b>Dart · {esc(user.full_name)}</b>", ""]
+    lines = [f"{pe('dart')} <b>Dart · {esc(user.full_name)}</b>", ""]
 
     async with get_session() as session:
         state = await get_or_create_state(session, user.id, message.chat.id)
