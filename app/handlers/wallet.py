@@ -46,7 +46,7 @@ async def help_cmd(message: Message):
         "<code>/coin &lt;amount&gt;</code>: coin flip\n"
         "<code>/dice &lt;amount&gt;</code>: dice duel\n"
         "<code>/highlow &lt;amount&gt;</code>: guess the next card, cash out anytime\n"
-        "<code>/dart &lt;amount&gt; &lt;white|red&gt;</code>: pick a color, throw a dart\n"
+        "<code>/dart &lt;amount&gt;</code>: throw a dart, payout depends on the throw\n"
         "<i>(blackjack, slots: coming soon)</i>\n"
         "\n"
         "<b>Social</b>\n"
