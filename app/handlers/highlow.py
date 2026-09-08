@@ -59,7 +59,7 @@ async def highlow_cmd(message: Message):
         run_id, card = run.id, run.current_card
 
     text = (
-        f"🃏 <b>Higher / Lower · {format_amount(wager)}</b>\n\n"
+        f"<tg-emoji emoji-id=\"5404556879852484450\">🃏</tg-emoji> <b>Higher / Lower · {format_amount(wager)}</b>\n\n"
         f"Card: <b>{card}</b> of 13\n\n"
         f"{esc(message.from_user.full_name)}, will the next card be higher or lower?"
     )
@@ -96,7 +96,7 @@ async def on_highlow_action(callback: CallbackQuery):
     if result["won"]:
         net = result["net"]
         text = (
-            "🃏 Higher / Lower\n\n"
+            "<tg-emoji emoji-id=\"5404556879852484450\">🃏</tg-emoji> Higher / Lower\n\n"
             f"Card was <b>{first_card}</b>, next was <b>{second_card}</b>. correct!\n\n"
             f"{pe('top')} <b>YOU WIN</b>\n"
             f"+{format_amount(net)}\n"
@@ -113,3 +113,5 @@ async def on_highlow_action(callback: CallbackQuery):
 
     await callback.message.edit_text(text)
     await callback.answer()
+
+"<tg-emoji emoji-id=\"5404556879852484450\">🃏</tg-emoji> Higher / Lower\n\n"
