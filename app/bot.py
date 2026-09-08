@@ -9,7 +9,7 @@ from aiohttp import web
 
 from app.config import settings, ECONOMY
 from app.database.db import init_db, get_session
-from app.handlers import economy, wallet, social, rps, coin, dice, highlow, pvp_common, admin, inbox
+from app.handlers import economy, wallet, social, rps, coin, dice, highlow, dart, pvp_common, admin, inbox
 from app.services.challenge import cancel_expired
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -25,6 +25,7 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(coin.router)
     dp.include_router(dice.router)
     dp.include_router(highlow.router)
+    dp.include_router(dart.router)
     dp.include_router(admin.router)
     dp.include_router(pvp_common.router)  # owns "acc:", "vsbot:", "coin:" callbacks for all games
     dp.include_router(inbox.router)  # DM-only: /bal, /stats, /gtop, banner /start, fallback for everything else
@@ -78,6 +79,13 @@ async def run() -> None:
     bot = Bot(token=settings.bot_token, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
     dp = build_dispatcher()
     await _run_health_server()
-    asyncio.create_task(_challenge_sweep_loop())
+    # BUG FIX: asyncio only holds a WEAK reference to a task once you drop
+    # the return value of create_task -- nothing here was keeping this loop
+    # alive. Under the wrong GC timing it could get silently collected mid-
+    # run: no crash, no log line, it just stops existing. This is the
+    # documented asyncio gotcha ("save a reference to the result"). Keeping
+    # it on the bot object is enough to prevent that.
+    bot.sweep_task = asyncio.create_task(_challenge_sweep_loop())
     logger.info("ptsbot starting polling")
     await dp.start_polling(bot)
+    
