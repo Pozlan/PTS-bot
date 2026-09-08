@@ -46,6 +46,7 @@ async def help_cmd(message: Message):
         "<code>/coin &lt;amount&gt;</code>: coin flip\n"
         "<code>/dice &lt;amount&gt;</code>: dice duel\n"
         "<code>/highlow &lt;amount&gt;</code>: guess the next card, cash out anytime\n"
+        "<code>/dart &lt;amount&gt; &lt;white|red&gt;</code>: pick a color, throw a dart\n"
         "<i>(blackjack, slots: coming soon)</i>\n"
         "\n"
         "<b>Social</b>\n"
@@ -162,3 +163,4 @@ async def stats(message: Message):
         f"{pe('vip') if rank == 1 else pe('top')} Rank #{rank}",
     ]
     await message.reply("\n".join(lines))
+    
