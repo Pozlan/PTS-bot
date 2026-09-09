@@ -47,6 +47,7 @@ async def help_cmd(message: Message):
         "<code>/dice &lt;amount&gt;</code>: dice duel\n"
         "<code>/highlow &lt;amount&gt;</code>: guess the next card, cash out anytime\n"
         "<code>/dart &lt;amount&gt;</code>: throw a dart, payout depends on the throw\n"
+        "<code>/cancel</code>: refund your own unaccepted hosted game\n"
         "<i>(blackjack, slots: coming soon)</i>\n"
         "\n"
         "<b>Social</b>\n"
