@@ -138,6 +138,22 @@ async def reconcile_reservations(session: AsyncSession) -> list[tuple[int, int, 
     return fixed
 
 
+async def cancel_own_pending(session: AsyncSession, user_id: int) -> list[Challenge]:
+    """Public, self-service version of /reset -- for /cancel (pvp_common.py).
+    Deliberately much narrower than force_cancel_all: only cancels the
+    CALLER's own challenges, and ONLY if still "pending" (nobody's accepted
+    yet). Never touches "accepted" challenges, even the caller's own --
+    once someone else has money on the line, bailing isn't a unilateral
+    decision anymore. That restriction is what makes this safe to expose
+    to every player instead of owner-only."""
+    stmt = select(Challenge).where(Challenge.status == "pending", Challenge.creator_id == user_id)
+    own_pending = list((await session.execute(stmt)).scalars())
+    for challenge in own_pending:
+        challenge.status = "cancelled"
+        await _refund_creator(session, challenge)
+    return own_pending
+
+
 async def force_cancel_all(session: AsyncSession) -> list[Challenge]:
     """Manual escape hatch for /reset (admin.py) -- same refund logic as
     cancel_expired, but with NO expiry check at all. Clears every open
