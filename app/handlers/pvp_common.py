@@ -19,7 +19,7 @@ from aiogram.types import CallbackQuery
 from app.config import ECONOMY
 from app.database.db import get_session
 from app.games import coin as coin_engine, dice as dice_engine
-from app.services.challenge import accept_challenge, get_challenge, ChallengeError
+from app.services.challenge import accept_challenge, get_challenge, cancel_own_pending, ChallengeError
 from app.services.economy import (
     get_or_create_user, get_or_create_group, get_or_create_state,
     format_amount, release_reservation,
@@ -28,8 +28,11 @@ from app.services.game_common import finalize_pvp, finalize_house
 from app.services.response_engine import react, win_category
 from app.services.premium_emoji import pe
 from app.utils.keyboards import rps_choice_keyboard, coin_choice_keyboard
+from aiogram.filters import Command
+from aiogram.types import Message
 
 router = Router()
+router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
 HOUSE_CAP = {
     "coin": ECONOMY.COIN_MAX_HOUSE_WAGER,
@@ -47,6 +50,24 @@ async def _ensure_player(session, user, chat):
     await get_or_create_user(session, user.id, user.full_name, user.username)
     await get_or_create_group(session, chat.id, chat.title or "")
     return await get_or_create_state(session, user.id, chat.id)
+
+
+@router.message(Command("cancel"))
+async def cancel_cmd(message: Message):
+    """Public self-service cancel -- anyone can bail on their OWN hosted
+    game while it's still unaccepted, instant refund, no waiting for the
+    3-min timer. Deliberately can't touch a game someone already accepted
+    (see cancel_own_pending) -- that's the line that keeps this safe to
+    make public instead of owner-only like /reset."""
+    async with get_session() as session:
+        cancelled = await cancel_own_pending(session, message.from_user.id)
+
+    if not cancelled:
+        await message.reply("you don't have any open (unaccepted) games to cancel.")
+        return
+
+    total = sum(c.wager for c in cancelled)
+    await message.reply(f"cancelled {len(cancelled)} game(s), {format_amount(total)} refunded.")
 
 
 @router.callback_query(F.data.startswith("acc:"))
@@ -238,3 +259,4 @@ async def on_coin_call(callback: CallbackQuery):
 
     await callback.message.edit_text("\n".join(lines))
     await callback.answer()
+                                  
