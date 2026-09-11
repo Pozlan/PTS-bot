@@ -14,10 +14,12 @@ def challenge_keyboard(challenge_id: int, wager: int, house_available: bool) -> 
 
 
 def rps_choice_keyboard(challenge_id: int) -> InlineKeyboardMarkup:
+    # Emoji only, no words -- the emoji already say rock/paper/scissors on
+    # their own, text next to them was just visual clutter.
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✊ Rock", callback_data=f"rps:{challenge_id}:rock"),
-        InlineKeyboardButton(text="✋ Paper", callback_data=f"rps:{challenge_id}:paper"),
-        InlineKeyboardButton(text="✌️ Scissors", callback_data=f"rps:{challenge_id}:scissors"),
+        InlineKeyboardButton(text="✊", callback_data=f"rps:{challenge_id}:rock"),
+        InlineKeyboardButton(text="✋", callback_data=f"rps:{challenge_id}:paper"),
+        InlineKeyboardButton(text="✌️", callback_data=f"rps:{challenge_id}:scissors"),
     ]])
 
 
@@ -26,3 +28,4 @@ def coin_choice_keyboard(challenge_id: int) -> InlineKeyboardMarkup:
         InlineKeyboardButton(text="🟡 Heads", callback_data=f"coin:{challenge_id}:heads"),
         InlineKeyboardButton(text="⚪ Tails", callback_data=f"coin:{challenge_id}:tails"),
     ]])
+    
