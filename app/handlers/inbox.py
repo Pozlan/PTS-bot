@@ -16,9 +16,10 @@ from aiogram.types import Message, FSInputFile
 from sqlalchemy import select, desc
 
 from app.database.db import get_session
-from app.database.models import PlayerState, User
+from app.database.models import PlayerState, User, Gift
 from app.services.economy import get_or_create_user, get_or_create_state, format_amount, available_balance, GLOBAL_ID
-from app.services.premium_emoji import pe
+from app.services.gifts import badge_tag, player_cabinet
+from app.services.premium_emoji import pe, raw_tag
 from app.utils.html_esc import esc
 
 router = Router()
@@ -39,7 +40,7 @@ async def start_dm(message: Message):
         "Play games, challenge your friends and earn PTS\n\n"
         "Think you've got what it takes huh?\n"
         "/help to see the games.\n\n"
-        f"{pe('play')} no group yet? join @PozzVerse to play with others."
+        f"{pe('play')} no group yet? join @Medhanit to play with others."
     )
     if BANNER_PATH.exists():
         await message.answer_photo(FSInputFile(BANNER_PATH), caption=caption)
@@ -53,40 +54,40 @@ async def bal_dm(message: Message):
     async with get_session() as session:
         await get_or_create_user(session, user.id, user.full_name, user.username)
         state = await get_or_create_state(session, user.id)
+        badge = await badge_tag(session, state)
 
-    lines = [f"<b>{esc(user.full_name)}</b>", format_amount(state.balance)]
+    lines = [f"<b>{esc(user.full_name)}</b>{badge}", format_amount(state.balance)]
     if state.reserved > 0:
         lines.append(f"{pe('afk')} {format_amount(state.reserved)} locked in an open challenge")
         lines.append(f"available: {format_amount(available_balance(state))}")
+    lines.append(f"{pe('wager')} {format_amount(state.total_wagered)} total wagered")
     await message.reply("\n".join(lines))
 
 
 @router.message(Command("stats"))
 async def stats_dm(message: Message):
+    """Pure flex screen now -- see handlers/wallet.py::stats for the
+    group version, this mirrors it exactly."""
     user = message.from_user
     async with get_session() as session:
         await get_or_create_user(session, user.id, user.full_name, user.username)
         state = await get_or_create_state(session, user.id)
+        badge = await badge_tag(session, state)
+        cabinet = await player_cabinet(session, user.id)
 
-        rank_stmt = (
-            select(PlayerState.user_id)
-            .where(PlayerState.group_id == GLOBAL_ID)
-            .order_by(desc(PlayerState.balance))
-        )
-        ranking = [row[0] for row in (await session.execute(rank_stmt)).all()]
-        rank = ranking.index(user.id) + 1 if user.id in ranking else "-"
-
-        total = state.wins + state.losses
-        win_rate = round(state.wins / total * 100) if total else 0
-
-    lines = [
-        f"<b>{esc(user.full_name)}</b>",
-        f"{format_amount(state.balance)}",
-        f"{pe('crossed_swords')} {state.wins}W / {state.losses}L",
-        f"{pe('hit')} {win_rate}% win rate",
-        f"{pe('wager')} {format_amount(state.total_wagered)} total wagered",
-        f"{pe('vip') if rank == 1 else pe('top')} Rank #{rank}",
-    ]
+    lines = [f"<b>{esc(user.full_name)}</b>{badge}", format_amount(state.balance), ""]
+    lines.append(f"{pe('vip')} <b>Gift Cabinet</b>")
+    if not cabinet:
+        lines.append("empty. check /shop in a group and start flexing.")
+    else:
+        by_category: dict[str, list[Gift]] = {}
+        for g in cabinet:
+            by_category.setdefault(g.category, []).append(g)
+        for category, gifts in by_category.items():
+            tags = " ".join(raw_tag(g.emoji_id) for g in gifts)
+            lines.append(f"{esc(category)}: {tags}")
+        lines.append("")
+        lines.append(f"{len(cabinet)} total. <code>/equip</code> in a group to set your badge.")
     await message.reply("\n".join(lines))
 
 
@@ -94,8 +95,9 @@ async def stats_dm(message: Message):
 async def gtop_dm(message: Message):
     async with get_session() as session:
         stmt = (
-            select(PlayerState, User)
+            select(PlayerState, User, Gift.emoji_id)
             .join(User, User.id == PlayerState.user_id)
+            .outerjoin(Gift, Gift.id == PlayerState.equipped_gift_id)
             .where(PlayerState.group_id == GLOBAL_ID)
             .order_by(desc(PlayerState.balance))
             .limit(10)
@@ -107,8 +109,9 @@ async def gtop_dm(message: Message):
         return
 
     lines = [f"{pe('top')} <b>PTS GLOBAL LEADERBOARD</b>", ""]
-    for i, (state, player) in enumerate(rows, start=1):
-        lines.append(f"{i}. {esc(player.display_name)} · {format_amount(state.balance)}")
+    for i, (state, player, badge_id) in enumerate(rows, start=1):
+        badge = f" {raw_tag(badge_id)}" if badge_id else ""
+        lines.append(f"{i}. {esc(player.display_name)}{badge} · {format_amount(state.balance)}")
     await message.reply("\n".join(lines))
 
 
@@ -124,7 +127,7 @@ async def help_dm(message: Message):
     await message.reply(
         f"{pe('play')} in DM you can check <code>/bal</code>, <code>/stats</code>, "
         "and <code>/gtop</code>, that's it here.\n"
-        "want to actually play? join @PozzVerse."
+        "want to actually play? join @Medhanit."
     )
 
 
@@ -134,7 +137,7 @@ async def fallback_dm(message: Message):
     Catches games/farm/tip/rob/etc. attempts specifically since those only
     exist as group-only routers and would otherwise be silently ignored."""
     await message.reply(
-        f"{pe('afk')} that one's group-only. join @PozzVerse play.\n"
+        f"{pe('afk')} that one's group-only. join @Medhanit to play.\n"
         "in here you can check <code>/bal</code>, <code>/stats</code>, and <code>/gtop</code>."
     )
     
