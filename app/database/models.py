@@ -76,6 +76,8 @@ class PlayerState(Base):
     protected_until: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     door_open_until: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
 
+    equipped_gift_id: Mapped[int | None] = mapped_column(ForeignKey("gifts.id"), nullable=True)
+
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow, onupdate=utcnow)
 
 
@@ -149,6 +151,27 @@ class HighLowRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
 
 
+class Gift(Base):
+    """/shop item (spec: pts sink + flex/status system). Each row is a
+    single, unique, ONE-OF-ONE unit -- not a 'type' with a quantity. Once
+    `owner_user_id` is set the gift is permanently sold and can never be
+    bought again, only restocked by the owner via /addgift (a fresh new
+    row, not un-selling this one). `tier` is null for Limited Edition
+    categories, which skip the low/mid/high tier step entirely."""
+    __tablename__ = "gifts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    category: Mapped[str] = mapped_column(String(64))
+    tier: Mapped[str | None] = mapped_column(String(8), nullable=True)  # "low" | "mid" | "high" | None
+    emoji_id: Mapped[str] = mapped_column(String(32))
+    price: Mapped[int] = mapped_column(BigInteger)
+
+    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    purchased_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+
+    added_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
+
+
 class GameHistory(Base):
     """One row per completed game, used by the response engine for context
     (recent games, opponent history) and by /stats and /gstats."""
@@ -163,4 +186,4 @@ class GameHistory(Base):
     wager: Mapped[int] = mapped_column(BigInteger)
     result: Mapped[str] = mapped_column(String(8))  # "win" | "loss" | "draw"
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
-  
+    
