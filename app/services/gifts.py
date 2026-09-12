@@ -132,6 +132,37 @@ async def sell_back(session: AsyncSession, state: PlayerState, gift: Gift, group
     return refund
 
 
+async def get_stock_overview(session: AsyncSession) -> list[dict]:
+    """Full stock breakdown, every category, every tier -- for /stock.
+    Same category/tier grouping logic as get_categories/get_tiers, just
+    fetched once for everything at once instead of one category at a time."""
+    all_gifts = list((await session.execute(select(Gift))).scalars())
+    by_category: dict[str, list[Gift]] = {}
+    for g in all_gifts:
+        by_category.setdefault(g.category, []).append(g)
+
+    overview = []
+    for category, gifts in sorted(by_category.items()):
+        has_tiers = any(g.tier for g in gifts)
+        if has_tiers:
+            by_tier: dict[str, list[Gift]] = {}
+            for g in gifts:
+                by_tier.setdefault(g.tier, []).append(g)
+            tier_rows = []
+            for tier, items in by_tier.items():
+                available = sum(1 for g in items if g.owner_user_id is None)
+                tier_rows.append({"tier": tier, "available": available, "total": len(items), "price": items[0].price})
+            tier_rows.sort(key=lambda t: TIER_ORDER.get(t["tier"], 99))
+            overview.append({"category": category, "tiers": tier_rows, "flat": None})
+        else:
+            available = sum(1 for g in gifts if g.owner_user_id is None)
+            overview.append({
+                "category": category, "tiers": None,
+                "flat": {"available": available, "total": len(gifts), "price": gifts[0].price},
+            })
+    return overview
+
+
 async def player_cabinet(session: AsyncSession, user_id: int) -> list[Gift]:
     stmt = select(Gift).where(Gift.owner_user_id == user_id).order_by(Gift.category, Gift.id)
     return list((await session.execute(stmt)).scalars())
