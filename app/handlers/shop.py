@@ -14,10 +14,12 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message, InlineKeyboardMarkup, InlineKeyboardButton
 
-from app.config import settings
+from app.config import settings, ECONOMY
 from app.database.db import get_session
 from app.services.economy import get_or_create_user, get_or_create_state, format_amount, parse_amount, InvalidAmount
-from app.services.gifts import get_categories, get_tiers, get_items, get_gift, purchase_gift, player_cabinet, GiftError
+from app.services.gifts import (
+    get_categories, get_tiers, get_items, get_gift, purchase_gift, sell_back, player_cabinet, GiftError,
+)
 from app.services.premium_emoji import pe, raw_tag
 from app.utils.html_esc import esc
 
@@ -195,6 +197,75 @@ async def on_item(callback: CallbackQuery):
     )
 
 
+@router.message(Command("sellback"))
+async def sellback_cmd(message: Message):
+    async with get_session() as session:
+        user = message.from_user
+        await get_or_create_user(session, user.id, user.full_name, user.username)
+        owned = await player_cabinet(session, user.id)
+
+    if not owned:
+        await message.reply("you don't own any gifts to sell back.")
+        return
+
+    rows = [
+        [InlineKeyboardButton(text=f"{i}", callback_data=f"sb:pick:{g.id}")]
+        for i, g in enumerate(owned, start=1)
+    ]
+    lines = [f"sell back for {int(ECONOMY.GIFT_REFUND_RATE * 100)}% of price. pick one:", ""]
+    for i, g in enumerate(owned, start=1):
+        lines.append(f"{i}. {raw_tag(g.emoji_id)} ({esc(g.category)}) · {format_amount(g.price)}")
+    await message.reply("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+@router.callback_query(F.data.startswith("sb:pick:"))
+async def on_sellback_pick(callback: CallbackQuery):
+    gift_id = int(callback.data.split(":", 2)[2])
+    async with get_session() as session:
+        gift = await get_gift(session, gift_id)
+        if gift is None or gift.owner_user_id != callback.from_user.id:
+            await callback.answer("that's not yours (anymore?).", show_alert=True)
+            return
+        refund = int(gift.price * ECONOMY.GIFT_REFUND_RATE)
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="yes, sell it", callback_data=f"sb:confirm:{gift_id}"),
+        InlineKeyboardButton(text="cancel", callback_data="sb:cancel"),
+    ]])
+    await callback.message.edit_text(
+        f"sell {raw_tag(gift.emoji_id)} back for {format_amount(refund)}? this can't be undone.",
+        reply_markup=kb,
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("sb:confirm:"))
+async def on_sellback_confirm(callback: CallbackQuery):
+    gift_id = int(callback.data.split(":", 2)[2])
+    user = callback.from_user
+
+    async with get_session() as session:
+        state = await get_or_create_state(session, user.id, callback.message.chat.id)
+        gift = await get_gift(session, gift_id)
+        if gift is None:
+            await callback.answer("that gift doesn't exist anymore.", show_alert=True)
+            return
+        try:
+            refund = await sell_back(session, state, gift, callback.message.chat.id)
+        except GiftError:
+            await callback.answer("that's not yours (anymore?).", show_alert=True)
+            return
+
+    await callback.message.edit_text(f"sold. +{format_amount(refund)}")
+    await callback.answer("sold!")
+
+
+@router.callback_query(F.data == "sb:cancel")
+async def on_sellback_cancel(callback: CallbackQuery):
+    await callback.message.edit_text("cancelled, still yours.")
+    await callback.answer()
+
+
 @router.message(Command("equip"))
 async def equip_cmd(message: Message):
     async with get_session() as session:
@@ -280,4 +351,4 @@ async def addgift_cmd(message: Message):
             session.add(Gift(category=category, tier=tier, emoji_id=eid, price=price))
 
     await message.reply(f"added {len(emoji_ids)} gift(s) to {esc(category)} ({tier or 'limited'}).")
-             
+    
