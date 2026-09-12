@@ -39,14 +39,14 @@ EMOJI_IDS: dict[str, tuple[str, str]] = {
     "pog": ("5375331860786200544", "🤯"),
     "loot": ("5463172695132745432", "🎁"),
     "l2p": ("5465225015190367274", "📉"),
-    "top": ("5222079954421818267", "🏆"),
+    "top": ("5463071033256848094", "🏆"),
     "vip": ("5229011542011299168", "👑"),
     "cr8": ("5454092060527181056", "✅"),
     "play": ("5453921696354419743", "🎮"),
     "dart": ("5350460637182993292", "🎯"),
     "afk": ("5462990652943904884", "⏳"),
     "bff": ("5373110220232870002", "💸"),
-    "pts": ("5312123810638483121", "💰"),
+    "pts": ("5287231198098117669", "💰"),
     "skull": ("5462882007451185227", "💀"),
     "wager": ("5226928895189598791", "🥷"),
     "bolt": ("5893450623449305489", "⚡"),
@@ -62,4 +62,11 @@ def pe(key: str) -> str:
         return "❓"
     custom_id, fallback = EMOJI_IDS[key]
     return f'<tg-emoji emoji-id="{custom_id}">{fallback}</tg-emoji>'
+
+
+def raw_tag(emoji_id: str, fallback: str = "🎁") -> str:
+    """Same as pe(), but for an emoji ID that isn't in the semantic
+    EMOJI_IDS registry above -- used for /shop gifts, where the IDs are
+    arbitrary catalog data (from /addgift) rather than named UI icons."""
+    return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
     
