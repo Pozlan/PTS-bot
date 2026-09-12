@@ -173,6 +173,7 @@ async def stats(message: Message):
             tags = " ".join(raw_tag(g.emoji_id) for g in gifts)
             lines.append(f"{esc(category)}: {tags}")
         lines.append("")
-        lines.append(f"{len(cabinet)} total. <code>/equip</code> to set your badge.")
+        worth = sum(g.price for g in cabinet)
+        lines.append(f"{raw_tag('5375296873982604963')} {worth:,}")
     await message.reply("\n".join(lines))
-    
+        
