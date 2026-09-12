@@ -16,6 +16,7 @@ from datetime import datetime
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import ECONOMY
 from app.database.models import Gift, PlayerState
 from app.services.economy import adjust_balance, available_balance
 from app.services.premium_emoji import raw_tag
@@ -106,6 +107,31 @@ async def purchase_gift(session: AsyncSession, state: PlayerState, gift: Gift, g
     await adjust_balance(session, state, -gift.price, "shop", ref=f"gift#{gift.id}", group_id=group_id)
 
 
+async def sell_back(session: AsyncSession, state: PlayerState, gift: Gift, group_id: int) -> int:
+    """Sells an owned gift back to the shop (not to another player) for
+    ECONOMY.GIFT_REFUND_RATE of its price. The gift resets to unowned and
+    goes back into stock at the SAME price -- next buyer pays full price
+    again, this player just ate the cut. Returns the refund amount.
+
+    If the gift being sold is the seller's currently equipped badge, that
+    gets cleared too -- otherwise their equipped_gift_id would keep
+    pointing at a gift that's either unowned or, worse, owned by whoever
+    buys it next."""
+    if gift.owner_user_id != state.user_id:
+        raise GiftError("not_yours")
+
+    refund = int(gift.price * ECONOMY.GIFT_REFUND_RATE)
+
+    if state.equipped_gift_id == gift.id:
+        state.equipped_gift_id = None
+
+    gift.owner_user_id = None
+    gift.purchased_at = None
+
+    await adjust_balance(session, state, refund, "shop", ref=f"sold back gift#{gift.id}", group_id=group_id)
+    return refund
+
+
 async def player_cabinet(session: AsyncSession, user_id: int) -> list[Gift]:
     stmt = select(Gift).where(Gift.owner_user_id == user_id).order_by(Gift.category, Gift.id)
     return list((await session.execute(stmt)).scalars())
@@ -122,4 +148,4 @@ async def badge_tag(session: AsyncSession, state: PlayerState) -> str:
     if gift is None:
         return ""
     return " " + raw_tag(gift.emoji_id)
-  
+    
