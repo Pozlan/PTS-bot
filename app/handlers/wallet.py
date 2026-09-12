@@ -177,4 +177,4 @@ async def stats(message: Message):
         worth = sum(g.price for g in cabinet)
         lines.append(f"{raw_tag('5375296873982604963')} <b>Worth:</b> {worth:,}")
     await message.reply("\n".join(lines))
-    
+        
