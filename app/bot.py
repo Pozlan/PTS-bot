@@ -9,7 +9,7 @@ from aiohttp import web
 
 from app.config import settings, ECONOMY
 from app.database.db import init_db, get_session
-from app.handlers import economy, wallet, social, rps, coin, dice, highlow, dart, pvp_common, admin, inbox
+from app.handlers import economy, wallet, social, rps, coin, dice, highlow, dart, shop, pvp_common, admin, inbox
 from app.services.challenge import cancel_expired
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -26,6 +26,7 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(dice.router)
     dp.include_router(highlow.router)
     dp.include_router(dart.router)
+    dp.include_router(shop.router)
     dp.include_router(admin.router)
     dp.include_router(pvp_common.router)  # owns "acc:", "vsbot:", "coin:" callbacks for all games
     dp.include_router(inbox.router)  # DM-only: /bal, /stats, /gtop, banner /start, fallback for everything else
