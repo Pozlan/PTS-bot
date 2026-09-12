@@ -18,7 +18,8 @@ from app.config import settings, ECONOMY
 from app.database.db import get_session
 from app.services.economy import get_or_create_user, get_or_create_state, format_amount, parse_amount, InvalidAmount
 from app.services.gifts import (
-    get_categories, get_tiers, get_items, get_gift, purchase_gift, sell_back, player_cabinet, GiftError,
+    get_categories, get_tiers, get_items, get_gift, purchase_gift, sell_back, player_cabinet,
+    get_stock_overview, GiftError,
 )
 from app.services.premium_emoji import pe, raw_tag
 from app.utils.html_esc import esc
@@ -34,6 +35,12 @@ TROLL_LINES = [
     "the audacity. you're nowhere close.",
     "not happening on that balance, champ.",
 ]
+
+# /addgift button-flow state, owner_id -> {"category", "tier", "stage"}.
+# In-memory on purpose -- this is an interactive, one-sitting owner tool,
+# not persistent data, so it resets on a redeploy/restart. That's fine:
+# worst case is just re-running /addgift.
+_pending: dict[int, dict] = {}
 
 
 def _category_kb(categories: list[dict]) -> InlineKeyboardMarkup:
@@ -312,28 +319,41 @@ async def on_equip(callback: CallbackQuery):
 
 @router.message(Command("addgift"))
 async def addgift_cmd(message: Message):
-    """Owner-only restock tool.
-    Usage: /addgift <category> | <tier or -> | <price> | <emoji_id> [emoji_id2 ...]
-    Example: /addgift Snoop Cars | low | 25000000 | 5375493278542099683 5379633584065770269
-    Use '-' for tier on a Limited Edition category (no tiers)."""
+    """Owner-only restock tool. Bare /addgift (no args) starts the button
+    flow: pick category -> pick tier -> type price + emoji id(s). Typing
+    the old pipe-syntax directly still works too, for anyone who prefers
+    it: /addgift <category> | <tier or -> | <price> | <emoji_id> [...]"""
     if message.from_user.id not in settings.owner_id_set:
         return  # silently ignore -- no error text, so it doesn't hint the command exists
 
     raw = message.text.split(maxsplit=1)
-    if len(raw) < 2 or "|" not in raw[1]:
-        await message.reply(
-            "usage: /addgift &lt;category&gt; | &lt;tier or -&gt; | &lt;price&gt; | &lt;emoji_id&gt; [more ids...]\n"
-            "example: /addgift Snoop Cars | low | 25000000 | 5375493278542099683 5379633584065770269"
-        )
+    if len(raw) >= 2 and "|" in raw[1]:
+        await _addgift_from_pipes(message, raw[1])
         return
 
-    parts = [p.strip() for p in raw[1].split("|")]
+    async with get_session() as session:
+        categories = await get_categories(session)
+
+    _pending.pop(message.from_user.id, None)
+    rows = [
+        [InlineKeyboardButton(text=c["category"], callback_data=f"ag:cat:{c['category']}")]
+        for c in categories
+    ]
+    rows.append([InlineKeyboardButton(text="➕ new category", callback_data="ag:newcat")])
+    await message.reply("add stock to which category?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+async def _addgift_from_pipes(message: Message, raw: str):
+    parts = [p.strip() for p in raw.split("|")]
     if len(parts) != 4:
         await message.reply("need exactly 4 parts separated by | -- category, tier, price, emoji id(s).")
         return
 
     category, tier_raw, price_raw, ids_raw = parts
     tier = None if tier_raw in ("-", "none", "") else tier_raw.lower()
+    if tier is not None and tier not in ("low", "mid", "high"):
+        await message.reply("tier must be exactly one of: low, mid, high (or - for no tiers).")
+        return
     try:
         price = parse_amount(price_raw)
     except InvalidAmount as e:
@@ -345,10 +365,119 @@ async def addgift_cmd(message: Message):
         await message.reply("no emoji ids given.")
         return
 
-    from app.database.models import Gift
-    async with get_session() as session:
-        for eid in emoji_ids:
-            session.add(Gift(category=category, tier=tier, emoji_id=eid, price=price))
-
+    await _create_gifts(category, tier, price, emoji_ids)
     await message.reply(f"added {len(emoji_ids)} gift(s) to {esc(category)} ({tier or 'limited'}).")
-    
+
+
+@router.callback_query(F.data.startswith("ag:cat:"))
+async def on_addgift_category(callback: CallbackQuery):
+    category = callback.data.split(":", 2)[2]
+    async with get_session() as session:
+        categories = await get_categories(session)
+        meta = next((c for c in categories if c["category"] == category), None)
+        has_tiers = bool(meta and meta["has_tiers"])
+        tiers = await get_tiers(session, category) if has_tiers else []
+
+    _pending[callback.from_user.id] = {"category": category}
+
+    if has_tiers:
+        rows = [
+            [InlineKeyboardButton(text=f"{TIER_LABEL[t['tier']]} ({t['available']}/{t['total']})", callback_data=f"ag:tier:{t['tier']}")]
+            for t in tiers
+        ]
+        rows.append([InlineKeyboardButton(text="➕ new tier", callback_data="ag:newtier")])
+        await callback.message.edit_text(f"<b>{esc(category)}</b> -- which tier?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    else:
+        _pending[callback.from_user.id]["tier"] = None
+        _pending[callback.from_user.id]["stage"] = "final"
+        await callback.message.edit_text(
+            f"<b>{esc(category)}</b> (limited edition)\n\nnow send: <code>&lt;price&gt; &lt;emoji_id&gt; [more ids...]</code>"
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "ag:newcat")
+async def on_addgift_new_category(callback: CallbackQuery):
+    _pending[callback.from_user.id] = {"stage": "new_category_line"}
+    await callback.message.edit_text(
+        "send the new category as one line:\n<code>&lt;category name&gt; | &lt;tier or -&gt;</code>\n"
+        "example: <code>Basketballs | low</code> (use <code>-</code> for a Limited Edition category, no tiers)"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("ag:tier:"))
+async def on_addgift_tier(callback: CallbackQuery):
+    tier = callback.data.split(":", 2)[2]
+    pending = _pending.get(callback.from_user.id)
+    if not pending or "category" not in pending:
+        await callback.answer("session expired, run /addgift again.", show_alert=True)
+        return
+    pending["tier"] = tier
+    pending["stage"] = "final"
+    await callback.message.edit_text(
+        f"<b>{esc(pending['category'])} · {TIER_LABEL.get(tier, tier)}</b>\n\n"
+        "now send: <code>&lt;price&gt; &lt;emoji_id&gt; [more ids...]</code>"
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data == "ag:newtier")
+async def on_addgift_new_tier(callback: CallbackQuery):
+    pending = _pending.get(callback.from_user.id)
+    if not pending or "category" not in pending:
+        await callback.answer("session expired, run /addgift again.", show_alert=True)
+        return
+    pending["stage"] = "new_tier_name"
+    await callback.message.edit_text("send the new tier name (e.g. <code>low</code>, <code>mid</code>, <code>high</code>):")
+    await callback.answer()
+
+
+def _awaiting_addgift_input(message: Message) -> bool:
+    """Named filter (not a bare catch-all) -- only ever matches an owner
+    who is mid-way through the /addgift button flow. Everyone else, and
+    every other message in the group, passes straight through untouched."""
+    return (
+        message.text is not None
+        and not message.text.startswith("/")
+        and message.from_user is not None
+        and message.from_user.id in settings.owner_id_set
+        and message.from_user.id in _pending
+    )
+
+
+@router.message(_awaiting_addgift_input)
+async def on_addgift_text(message: Message):
+    pending = _pending[message.from_user.id]
+    stage = pending.get("stage")
+
+    if stage == "new_category_line":
+        parts = [p.strip() for p in message.text.split("|")]
+        if len(parts) != 2:
+            await message.reply("need exactly: category | tier (or -). try again.")
+            return
+        category, tier_raw = parts
+        tier = None if tier_raw in ("-", "none", "") else tier_raw.lower()
+        if tier is not None and tier not in ("low", "mid", "high"):
+            await message.reply("tier must be exactly one of: low, mid, high (or - for no tiers).")
+            return
+        pending["category"] = category
+        pending["tier"] = tier
+        pending["stage"] = "final"
+        await message.reply("got it. now send: <code>&lt;price&gt; &lt;emoji_id&gt; [more ids...]</code>")
+        return
+
+    if stage == "new_tier_name":
+        tier = message.text.strip().lower()
+        if tier not in ("low", "mid", "high"):
+            await message.reply("tier must be exactly one of: low, mid, high.")
+            return
+        pending["tier"] = tier
+        pending["stage"] = "final"
+        await message.reply("got it. now send: <code>&lt;price&gt; &lt;emoji_id&gt; [more ids...]</code>")
+        return
+
+    if stage == "final":
+        parts = message.text.split()
+        if len(parts) < 2:
+            await message.rep
