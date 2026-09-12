@@ -17,6 +17,7 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSe
 # missing, does nothing if it's already there. Never removes or renames.
 _PENDING_COLUMNS = [
     ("player_state", "total_wagered", "BIGINT DEFAULT 0"),
+    ("player_state", "equipped_gift_id", "INTEGER REFERENCES gifts(id)"),
 ]
 
 
@@ -63,4 +64,4 @@ async def get_session():
         except Exception:
             await session.rollback()
             raise
-      
+            
