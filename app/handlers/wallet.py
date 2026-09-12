@@ -58,6 +58,7 @@ async def help_cmd(message: Message):
         "\n"
         "<b>Flex</b>\n"
         "<code>/shop</code>: spend pts on collectible gifts\n"
+        "<code>/sellback</code>: sell an owned gift back for 80%\n"
         "<code>/equip</code>: pick a badge to show next to your name\n"
         "\n"
         "<b>You</b>\n"
@@ -176,4 +177,4 @@ async def stats(message: Message):
         worth = sum(g.price for g in cabinet)
         lines.append(f"{raw_tag('5375296873982604963')} <b>Worth:</b> {worth:,}")
     await message.reply("\n".join(lines))
-    
+        
