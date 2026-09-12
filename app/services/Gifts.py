@@ -122,4 +122,4 @@ async def badge_tag(session: AsyncSession, state: PlayerState) -> str:
     if gift is None:
         return ""
     return " " + raw_tag(gift.emoji_id)
-  
+    
