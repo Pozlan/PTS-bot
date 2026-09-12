@@ -84,6 +84,13 @@ class EconomyConfig:
     BJ_MAX_HOUSE_WAGER: int = 250_000
     SLOTS_MAX_WAGER: int = 250_000
 
+    # /shop buyback -- selling an owned gift back to the shop, not to
+    # another player. Refunds 80% of price, the gift resets to unowned and
+    # goes back into stock at its original price. The 20% cut is what
+    # keeps this from being a free round-trip -- buy then sell back always
+    # costs the player something, so there's no way to profit off it.
+    GIFT_REFUND_RATE: float = 0.8
+
     # PvP challenges
     CHALLENGE_EXPIRATION_S: int = 3 * 60
     CHALLENGE_SWEEP_INTERVAL_S: int = 30  # how often the background task checks for expired challenges to refund
