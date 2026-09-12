@@ -50,16 +50,39 @@ def _tier_kb(category: str, tiers: list[dict]) -> InlineKeyboardMarkup:
         )]
         for t in tiers
     ]
+    rows.append([InlineKeyboardButton(text="« back", callback_data="shop:back:categories")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _item_kb(items: list) -> InlineKeyboardMarkup:
+def _item_kb(items: list, category: str, tier: str | None) -> InlineKeyboardMarkup:
     buttons = [
         InlineKeyboardButton(text=str(i), callback_data=f"shop:item:{g.id}")
         for i, g in enumerate(items, start=1) if g.owner_user_id is None
     ]
     rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
-    return InlineKeyboardMarkup(inline_keyboard=rows)  # empty rows list = no buttons shown, valid when everything's sold
+    # Tiered category -> back goes to its tier list. Limited Edition (no
+    # tier step at all) -> back goes straight to categories.
+    back_cb = f"shop:back:tier:{category}" if tier else "shop:back:categories"
+    rows.append([InlineKeyboardButton(text="« back", callback_data=back_cb)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _categories_view(categories: list[dict]) -> tuple[str, InlineKeyboardMarkup]:
+    lines = [f"{pe('vip')} <b>PTS SHOP</b>", ""]
+    for i, c in enumerate(categories, start=1):
+        lines.append(f"{i}. <b>{esc(c['category'])}</b> {raw_tag(c['preview_emoji_id'])}")
+    lines.append("")
+    lines.append("tap a category.")
+    return "\n".join(lines), _category_kb(categories)
+
+
+def _tiers_view(category: str, tiers: list[dict]) -> tuple[str, InlineKeyboardMarkup]:
+    lines = [f"<b>{esc(category)}</b>", ""]
+    for t in tiers:
+        lines.append(f"{TIER_LABEL[t['tier']]} · {format_amount(t['price'])} pts each ({t['available']}/{t['total']} left)")
+    lines.append("")
+    lines.append("tap a tier.")
+    return "\n".join(lines), _tier_kb(category, tiers)
 
 
 @router.message(Command("shop"))
@@ -71,12 +94,20 @@ async def shop_cmd(message: Message):
         await message.reply("shop's empty right now. check back later.")
         return
 
-    lines = [f"{pe('vip')} <b>PTS SHOP</b>", ""]
-    for i, c in enumerate(categories, start=1):
-        lines.append(f"{i}. <b>{esc(c['category'])}</b> {raw_tag(c['preview_emoji_id'])}")
-    lines.append("")
-    lines.append("tap a category.")
-    await message.reply("\n".join(lines), reply_markup=_category_kb(categories))
+    text, kb = _categories_view(categories)
+    await message.reply(text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "shop:back:categories")
+async def on_back_categories(callback: CallbackQuery):
+    async with get_session() as session:
+        categories = await get_categories(session)
+    if not categories:
+        await callback.message.edit_text("shop's empty right now. check back later.")
+    else:
+        text, kb = _categories_view(categories)
+        await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("shop:cat:"))
@@ -89,15 +120,21 @@ async def on_category(callback: CallbackQuery):
         tiers = await get_tiers(session, category) if has_tiers else []
 
     if has_tiers:
-        lines = [f"<b>{esc(category)}</b>", ""]
-        for t in tiers:
-            lines.append(f"{TIER_LABEL[t['tier']]} · {format_amount(t['price'])} pts each ({t['available']}/{t['total']} left)")
-        lines.append("")
-        lines.append("tap a tier.")
-        await callback.message.edit_text("\n".join(lines), reply_markup=_tier_kb(category, tiers))
+        text, kb = _tiers_view(category, tiers)
+        await callback.message.edit_text(text, reply_markup=kb)
     else:
         # Limited Edition -- no tier step, straight to the item list
         await _show_items(callback, category, None)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("shop:back:tier:"))
+async def on_back_tier(callback: CallbackQuery):
+    category = callback.data.split(":", 3)[3]
+    async with get_session() as session:
+        tiers = await get_tiers(session, category)
+    text, kb = _tiers_view(category, tiers)
+    await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
 
 
@@ -122,7 +159,7 @@ async def _show_items(callback: CallbackQuery, category: str, tier: str | None):
             lines.append(f"{i}. {tag} · {format_amount(g.price)} pts")
     lines.append("")
     lines.append("tap a number to buy.")
-    await callback.message.edit_text("\n".join(lines), reply_markup=_item_kb(items))
+    await callback.message.edit_text("\n".join(lines), reply_markup=_item_kb(items, category, tier))
 
 
 @router.callback_query(F.data.startswith("shop:item:"))
