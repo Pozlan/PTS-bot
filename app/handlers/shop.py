@@ -45,7 +45,11 @@ def _category_kb(categories: list[dict]) -> InlineKeyboardMarkup:
 def _tier_kb(category: str, tiers: list[dict]) -> InlineKeyboardMarkup:
     rows = [
         [InlineKeyboardButton(
-            text=f"{TIER_LABEL[t['tier']]} · {format_amount(t['price'])} ({t['available']}/{t['total']} left)",
+            # Plain f"{n:,}" here, NOT format_amount() -- that embeds a
+            # <tg-emoji> tag for the pts symbol, which is fine in message
+            # text but buttons only render plain text, so the raw tag
+            # would show up literally instead of rendering as an emoji.
+            text=f"{TIER_LABEL[t['tier']]} · {t['price']:,} ({t['available']}/{t['total']} left)",
             callback_data=f"shop:tier:{category}:{t['tier']}",
         )]
         for t in tiers
@@ -276,3 +280,4 @@ async def addgift_cmd(message: Message):
             session.add(Gift(category=category, tier=tier, emoji_id=eid, price=price))
 
     await message.reply(f"added {len(emoji_ids)} gift(s) to {esc(category)} ({tier or 'limited'}).")
+             
