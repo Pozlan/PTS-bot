@@ -73,6 +73,19 @@ class PlayerState(Base):
     times_robbed: Mapped[int] = mapped_column(Integer, default=0)
     total_wagered: Mapped[int] = mapped_column(BigInteger, default=0)
 
+    # Auto grace period after being successfully robbed -- blocks ANY
+    # robber, not just the one who hit them, so five different players
+    # can't pile onto the same unprotected victim back-to-back. See
+    # config.ROBBERY_VICTIM_GRACE_S and handlers/social.py::rob.
+    robbed_immune_until: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+
+    # Counts successful hits since the last /protect activation. Once it
+    # hits config.ROBBERY_MAX_HITS_BEFORE_PROTECTION, this player can't be
+    # robbed at all (regardless of grace period above) until they run
+    # /protect again, which resets it to 0. See handlers/social.py::rob
+    # and handlers/social.py::protect.
+    hits_since_protection: Mapped[int] = mapped_column(Integer, default=0)
+
     protected_until: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     door_open_until: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
 
@@ -186,4 +199,3 @@ class GameHistory(Base):
     wager: Mapped[int] = mapped_column(BigInteger)
     result: Mapped[str] = mapped_column(String(8))  # "win" | "loss" | "draw"
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
-    
