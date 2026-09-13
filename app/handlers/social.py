@@ -7,7 +7,6 @@ from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKe
 
 from app.config import ECONOMY
 from app.database.db import get_session
-from app.services import cooldown as cd
 from app.services.economy import (
     get_or_create_user, get_or_create_group, get_or_create_state,
     parse_amount, InvalidAmount, InsufficientBalance, available_balance, adjust_balance, format_amount,
@@ -93,6 +92,7 @@ async def protect(message: Message):
 
         state.protected_until = now + timedelta(seconds=ECONOMY.PROTECTION_DURATION_S)
         state.door_open_until = None
+        state.hits_since_protection = 0  # fresh 2-hit allowance for their next unprotected stretch
 
     await message.reply(
         f"{pe('save')} <b>Protection active</b>\nno one can rob you for <b>24h</b>.\nyou're also locked out of robbery.",
@@ -118,11 +118,6 @@ async def rob(message: Message):
         robber_state = await get_or_create_state(session, robber.id, message.chat.id)
         target_state = await get_or_create_state(session, target.id, message.chat.id)
 
-        remaining = await cd.check(session, robber.id, message.chat.id, "rob")
-        if remaining:
-            await message.reply(f"{pe('afk')} still laying low. try again in {cd.format_remaining(remaining)}.")
-            return
-
         now = utcnow()
 
         # Bug fix: a protected robber (door closed) must not be able to rob
@@ -140,16 +135,30 @@ async def rob(message: Message):
         door_open = bool(target_state.door_open_until and target_state.door_open_until > now)
 
         if is_protected and not door_open:
-            await cd.set_cooldown(session, robber.id, message.chat.id, "rob", ECONOMY.ROBBERY_COOLDOWN_S)
             text = react("protection", target=esc(target.full_name))
             await message.reply(text)
+            return
+
+        # Hard cap -- once hit this many times since their last /protect,
+        # a player is fully unrobbable until they run /protect again
+        # (which resets the counter to 0). No robber cooldown exists
+        # anymore, so this is what actually bounds total exposure.
+        if target_state.hits_since_protection >= ECONOMY.ROBBERY_MAX_HITS_BEFORE_PROTECTION:
+            await message.reply(f"{esc(target.full_name)} needs to run /protect before anyone can rob them again.")
+            return
+
+        # Auto grace period -- blocks EVERY robber, not just this one, for
+        # a short while after the target's last successful hit. This is
+        # what actually stops a pile-on: /protect requires the player to
+        # remember to activate it, this doesn't.
+        in_grace = bool(target_state.robbed_immune_until and target_state.robbed_immune_until > now)
+        if in_grace:
+            await message.reply(f"{esc(target.full_name)} just got hit, they're laying low. try someone else.")
             return
 
         if target_state.balance < ECONOMY.ROBBERY_MIN_TARGET_BALANCE:
             await message.reply(f"{esc(target.full_name)} doesn't have enough on them to be worth robbing.")
             return
-
-        await cd.set_cooldown(session, robber.id, message.chat.id, "rob", ECONOMY.ROBBERY_COOLDOWN_S)
 
         # No random miss chance -- an unprotected target has no way to
         # resist. Protection (see checks above) is the only defense.
@@ -159,6 +168,8 @@ async def rob(message: Message):
         await adjust_balance(session, robber_state, steal, "rob", ref=f"robbed {target.id}", group_id=message.chat.id)
         robber_state.robberies_success += 1
         target_state.times_robbed += 1
+        target_state.hits_since_protection += 1
+        target_state.robbed_immune_until = now + timedelta(seconds=ECONOMY.ROBBERY_VICTIM_GRACE_S)
         text = react("rob_success", robber=esc(robber.full_name), target=esc(target.full_name), amount=steal)
 
     await message.reply(text)
