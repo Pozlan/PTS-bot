@@ -1,196 +1,139 @@
-from datetime import timedelta
-import random
+"""
+All tunable economy values live here. Nothing gameplay-related should be
+hardcoded inside handlers/games/services — pull it from here so balancing
+the game never means hunting through source files.
 
-from aiogram import Router, F
-from aiogram.filters import Command
-from aiogram.types import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
-
-from app.config import ECONOMY
-from app.database.db import get_session
-from app.services.economy import (
-    get_or_create_user, get_or_create_group, get_or_create_state,
-    parse_amount, InvalidAmount, InsufficientBalance, available_balance, adjust_balance, format_amount,
-)
-from app.services.response_engine import react
-from app.utils.targeting import resolve_reply_target
-from app.utils.time import utcnow
-from app.utils.html_esc import esc
-from app.services.premium_emoji import pe
-
-router = Router()
-router.message.filter(F.chat.type.in_({"group", "supergroup"}))
+Per-group overrides (via /gconfig) are stored in GroupSettings and layered
+on top of these defaults at read time — see services/economy.py:get_group_config.
+"""
+from dataclasses import dataclass, field
+from pydantic_settings import BaseSettings
 
 
-@router.message(Command("tip"))
-async def tip(message: Message):
-    target = resolve_reply_target(message)
-    if target is None:
-        await message.reply("reply to the person you want to tip. usage: /tip 500")
-        return
-    if target.id == message.from_user.id:
-        await message.reply("you can't tip yourself.")
-        return
+class Settings(BaseSettings):
+    bot_token: str
+    database_url: str = "sqlite+aiosqlite:///./ptsbot.db"
+    owner_ids: str = ""
 
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        await message.reply("usage: /tip &lt;amount&gt; (as a reply)")
-        return
-    try:
-        amount = parse_amount(parts[1])
-    except InvalidAmount as e:
-        await message.reply(f"can't do that: {e}")
-        return
+    class Config:
+        env_file = ".env"
 
-    async with get_session() as session:
-        sender = message.from_user
-        await get_or_create_user(session, sender.id, sender.full_name, sender.username)
-        await get_or_create_user(session, target.id, target.full_name, target.username)
-        await get_or_create_group(session, message.chat.id, message.chat.title or "")
-        sender_state = await get_or_create_state(session, sender.id, message.chat.id)
-        target_state = await get_or_create_state(session, target.id, message.chat.id)
-
-        if amount > available_balance(sender_state):
-            await message.reply("you don't have that much available.")
-            return
-
-        try:
-            await adjust_balance(session, sender_state, -amount, "tip", ref=f"to {target.id}", group_id=message.chat.id)
-            await adjust_balance(session, target_state, amount, "tip", ref=f"from {sender.id}", group_id=message.chat.id)
-        except InsufficientBalance:
-            await message.reply("you don't have that much available.")
-            return
-
-    await message.reply(f"{pe('bff')} <b>Tip sent</b>\n{esc(sender.full_name)} sent <b>{format_amount(amount)}</b> to {esc(target.full_name)}.")
+    @property
+    def owner_id_set(self) -> set[int]:
+        return {int(x) for x in self.owner_ids.split(",") if x.strip()}
 
 
-@router.message(Command("protect"))
-async def protect(message: Message):
-    kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Open door · 5m", callback_data="door:open")
-    ]])
-
-    async with get_session() as session:
-        user = message.from_user
-        await get_or_create_user(session, user.id, user.full_name, user.username)
-        await get_or_create_group(session, message.chat.id, message.chat.title or "")
-        state = await get_or_create_state(session, user.id, message.chat.id)
-
-        now = utcnow()
-        if state.protected_until and state.protected_until > now:
-            # BUG FIX: this branch replied with plain text and no keyboard
-            # at all, so re-checking /protect while already protected made
-            # the door button disappear entirely instead of always being
-            # reachable. Same button, same behavior, every time -- unless
-            # the door's already open right now, in which case there's
-            # nothing to open.
-            door_open = bool(state.door_open_until and state.door_open_until > now)
-            if door_open:
-                await message.reply(f"{pe('save')} you're already protected, and your door's already open right now.")
-            else:
-                await message.reply(f"{pe('save')} you're already protected.", reply_markup=kb)
-            return
-
-        state.protected_until = now + timedelta(seconds=ECONOMY.PROTECTION_DURATION_S)
-        state.door_open_until = None
-        state.hits_since_protection = 0  # fresh 2-hit allowance for their next unprotected stretch
-
-    await message.reply(
-        f"{pe('save')} <b>Protection active</b>\nno one can rob you for <b>24h</b>.\nyou're also locked out of robbery.",
-        reply_markup=kb,
-    )
+settings = Settings()
 
 
-@router.message(Command("rob"))
-async def rob(message: Message):
-    target = resolve_reply_target(message)
-    if target is None:
-        await message.reply("reply to the person you want to rob. usage: /rob (as a reply)")
-        return
-    if target.id == message.from_user.id:
-        await message.reply("you can't rob yourself.")
-        return
+@dataclass(frozen=True)
+class EconomyConfig:
+    # /farm
+    # Bumped 50x (was 800-3200) -- launch-day numbers that stopped mattering
+    # once the group's balances settled in the millions. Same cooldown, same
+    # odds, just an amount worth actually running the command for.
+    FARM_MIN: int = 40_000
+    FARM_MAX: int = 160_000
+    FARM_COOLDOWN_S: int = 24 * 3600
 
-    async with get_session() as session:
-        robber = message.from_user
-        await get_or_create_user(session, robber.id, robber.full_name, robber.username)
-        await get_or_create_user(session, target.id, target.full_name, target.username)
-        await get_or_create_group(session, message.chat.id, message.chat.title or "")
-        robber_state = await get_or_create_state(session, robber.id, message.chat.id)
-        target_state = await get_or_create_state(session, target.id, message.chat.id)
+    # /work
+    # All ranges x50 for the same reason as /farm above.
+    WORK_COOLDOWN_S: int = 3 * 3600
+    WORK_JOBS: dict = field(default_factory=lambda: {
+        "cleaner": (7_500, 30_000),
+        "delivery driver": (10_000, 37_500),
+        "freelancer": (12_500, 60_000),
+        "mechanic": (15_000, 45_000),
+        "developer": (20_000, 80_000),
+        "chef": (12_500, 42_500),
+        "driver": (10_000, 35_000),
+        "security guard": (10_000, 32_500),
+        "trader": (5_000, 100_000),
+        "construction worker": (15_000, 47_500),
+    })
 
-        now = utcnow()
+    # /loot
+    LOOT_COOLDOWN_S: int = 2 * 3600
+    LOOT_SUCCESS_RATE: float = 0.55
+    LOOT_MIN: int = 50_000
+    LOOT_MAX: int = 500_000
 
-        # Bug fix: a protected robber (door closed) must not be able to rob
-        # anyone -- previously only the TARGET's protection was checked here,
-        # so a protected player could freely rob others while staying safe
-        # themselves. Same door-open exception applies to the robber as to
-        # the target: open your own door for 5 min to be allowed to rob.
-        robber_protected = bool(robber_state.protected_until and robber_state.protected_until > now)
-        robber_door_open = bool(robber_state.door_open_until and robber_state.door_open_until > now)
-        if robber_protected and not robber_door_open:
-            await message.reply(f"{pe('save')} you're protected right now, open your door first if you want to rob.")
-            return
+    # /hunt
+    HUNT_COOLDOWN_S: int = 4 * 3600
+    HUNT_SUCCESS_RATE: float = 0.5
+    HUNT_MIN_STAKE: int = 200
+    HUNT_MAX_STAKE: int = 10_000_000       # was uncapped -- let a big enough stake x4 reward snowball a balance
+    HUNT_REWARD_MULT: tuple = (1.5, 4.0)   # win: stake * random in this range
+    HUNT_LOSS_MULT: tuple = (0.5, 1.0)     # loss: stake * random in this range, deducted
 
-        is_protected = bool(target_state.protected_until and target_state.protected_until > now)
-        door_open = bool(target_state.door_open_until and target_state.door_open_until > now)
+    # /luck
+    LUCK_COOLDOWN_S: int = 24 * 3600
+    # /luck is gains-only (see handlers/economy.py::luck) -- three tiers:
+    # rare zero, common medium, rare big. No loss branch at all.
+    LUCK_ZERO_RATE: float = 0.10   # rare: nothing this time
+    LUCK_BIG_RATE: float = 0.15    # rare: big win (remainder, 0.75, is the common medium tier)
+    LUCK_MEDIUM_MIN: int = 100_000
+    LUCK_MEDIUM_MAX: int = 500_000
+    LUCK_BIG_MIN: int = 1_000_000
+    LUCK_BIG_MAX: int = 3_000_000
 
-        if is_protected and not door_open:
-            text = react("protection", target=esc(target.full_name))
-            await message.reply(text)
-            return
+    # House wager caps (0 = no cap -- unlimited wager allowed vs house)
+    RPS_MAX_HOUSE_WAGER: int = 250_000
+    COIN_MAX_HOUSE_WAGER: int = 250_000
+    DICE_MAX_HOUSE_WAGER: int = 250_000
+    # HighLow (solo one-shot game vs house)
+    HIGHLOW_MAX_HOUSE_WAGER: int = 500_000
+    HIGHLOW_MAX_ROUNDS: int = 15      # unused now that HighLow is one-shot, kept in case a streak mode returns
+    DART_MAX_WAGER: int = 5_000_000
+    BJ_MAX_HOUSE_WAGER: int = 250_000
+    SLOTS_MAX_WAGER: int = 250_000
 
-        # Hard cap -- once hit this many times since their last /protect,
-        # a player is fully unrobbable until they run /protect again
-        # (which resets the counter to 0). No robber cooldown exists
-        # anymore, so this is what actually bounds total exposure.
-        if target_state.hits_since_protection >= ECONOMY.ROBBERY_MAX_HITS_BEFORE_PROTECTION:
-            await message.reply(f"{esc(target.full_name)} needs to run /protect before anyone can rob them again.")
-            return
+    # /shop buyback -- selling an owned gift back to the shop, not to
+    # another player. Refunds 80% of price, the gift resets to unowned and
+    # goes back into stock at its original price. The 20% cut is what
+    # keeps this from being a free round-trip -- buy then sell back always
+    # costs the player something, so there's no way to profit off it.
+    GIFT_REFUND_RATE: float = 0.8
 
-        # Auto grace period -- blocks EVERY robber, not just this one, for
-        # a short while after the target's last successful hit. This is
-        # what actually stops a pile-on: /protect requires the player to
-        # remember to activate it, this doesn't.
-        in_grace = bool(target_state.robbed_immune_until and target_state.robbed_immune_until > now)
-        if in_grace:
-            await message.reply(f"{esc(target.full_name)} just got hit, they're laying low. try someone else.")
-            return
+    # PvP challenges
+    CHALLENGE_EXPIRATION_S: int = 3 * 60
+    CHALLENGE_SWEEP_INTERVAL_S: int = 30  # how often the background task checks for expired challenges to refund
 
-        if target_state.balance < ECONOMY.ROBBERY_MIN_TARGET_BALANCE:
-            await message.reply(f"{esc(target.full_name)} doesn't have enough on them to be worth robbing.")
-            return
+    # Robbery
+    # No per-robber cooldown -- removed. Every throttle now lives on the
+    # victim's side instead (grace period + hit cap below), not the
+    # attacker's, so robbing is instant/free to attempt.
+    # No more random success roll -- an unprotected target is always
+    # robbable (protection is the only defense, not luck). Steal % is
+    # randomized per-hit instead of a flat cut.
+    ROBBERY_STEAL_PCT_MIN: float = 0.15
+    ROBBERY_STEAL_PCT_MAX: float = 0.20
+    ROBBERY_MIN_TARGET_BALANCE: int = 5000
+    # No failure penalty -- a failed robbery costs the robber nothing.
+    # Steal is currently flat 20% on success (was a random 2-15% range
+    # with a 5% self-penalty on failure).
 
-        # No random miss chance -- an unprotected target has no way to
-        # resist. Protection (see checks above) is the only defense.
-        pct = random.uniform(ECONOMY.ROBBERY_STEAL_PCT_MIN, ECONOMY.ROBBERY_STEAL_PCT_MAX)
-        steal = max(1, int(target_state.balance * pct))
-        await adjust_balance(session, target_state, -steal, "rob", ref=f"robbed by {robber.id}", group_id=message.chat.id)
-        await adjust_balance(session, robber_state, steal, "rob", ref=f"robbed {target.id}", group_id=message.chat.id)
-        robber_state.robberies_success += 1
-        target_state.times_robbed += 1
-        target_state.hits_since_protection += 1
-        target_state.robbed_immune_until = now + timedelta(seconds=ECONOMY.ROBBERY_VICTIM_GRACE_S)
-        text = react("rob_success", robber=esc(robber.full_name), target=esc(target.full_name), amount=steal)
+    # Victim grace period: after getting successfully robbed, NOBODY can
+    # rob that person again for this long -- not just the same robber.
+    # Automatic, no player action needed. Separate from /protect (player-
+    # activated, 24h, has a door mechanic).
+    ROBBERY_VICTIM_GRACE_S: int = 10 * 60
 
-    await message.reply(text)
+    # Hard hit cap: once a player's been successfully robbed this many
+    # times since their last /protect activation, they're fully un-
+    # robbable (regardless of grace period) until they run /protect
+    # again. The counter resets on every /protect activation. Combined
+    # with removing the robber cooldown above, this is what actually
+    # bounds total exposure -- no cooldown slows attackers down, so the
+    # cap has to live here instead.
+    ROBBERY_MAX_HITS_BEFORE_PROTECTION: int = 2
+
+    # Protection
+    PROTECTION_DURATION_S: int = 24 * 3600
+    DOOR_DURATION_S: int = 5 * 60
+
+    # Starting balance for new players
+    STARTING_BALANCE: int = 100_000
 
 
-@router.callback_query(F.data == "door:open")
-async def open_door(callback: CallbackQuery):
-    async with get_session() as session:
-        user = callback.from_user
-        await get_or_create_user(session, user.id, user.full_name, user.username)
-        await get_or_create_group(session, callback.message.chat.id, callback.message.chat.title or "")
-        state = await get_or_create_state(session, user.id, callback.message.chat.id)
-        now = utcnow()
-        if not state.protected_until or state.protected_until <= now:
-            await callback.answer("you're not protected right now.", show_alert=True)
-            return
-        if state.door_open_until and state.door_open_until > now:
-            await callback.answer("the door's already open.", show_alert=True)
-            return
-
-        state.door_open_until = now + timedelta(seconds=ECONOMY.DOOR_DURATION_S)
-
-    await callback.message.reply("<b>Door open</b>\nyou're exposed for <b>5 minutes</b>.\nyou can rob others now.")
-    await callback.answer()
+ECONOMY = EconomyConfig()
