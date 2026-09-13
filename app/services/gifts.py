@@ -132,6 +132,18 @@ async def sell_back(session: AsyncSession, state: PlayerState, gift: Gift, group
     return refund
 
 
+async def delete_gift(session: AsyncSession, gift_id: int) -> Gift | None:
+    """Permanently removes an unsold gift row from the shop. Refuses (returns
+    None) if the gift doesn't exist or is already owned -- deleting a sold
+    gift would silently take it away from whoever bought it, badge and all,
+    with no way to undo it. Only ever touches stock nobody has bought yet."""
+    gift = await session.get(Gift, gift_id)
+    if gift is None or gift.owner_user_id is not None:
+        return None
+    await session.delete(gift)
+    return gift
+
+
 async def get_stock_overview(session: AsyncSession) -> list[dict]:
     """Full stock breakdown, every category, every tier -- for /stock.
     Same category/tier grouping logic as get_categories/get_tiers, just
@@ -179,3 +191,4 @@ async def badge_tag(session: AsyncSession, state: PlayerState) -> str:
     if gift is None:
         return ""
     return " " + raw_tag(gift.emoji_id)
+                    
