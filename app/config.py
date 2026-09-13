@@ -29,36 +29,40 @@ settings = Settings()
 @dataclass(frozen=True)
 class EconomyConfig:
     # /farm
-    FARM_MIN: int = 800
-    FARM_MAX: int = 3200
+    # Bumped 50x (was 800-3200) -- launch-day numbers that stopped mattering
+    # once the group's balances settled in the millions. Same cooldown, same
+    # odds, just an amount worth actually running the command for.
+    FARM_MIN: int = 40_000
+    FARM_MAX: int = 160_000
     FARM_COOLDOWN_S: int = 24 * 3600
 
     # /work
+    # All ranges x50 for the same reason as /farm above.
     WORK_COOLDOWN_S: int = 3 * 3600
     WORK_JOBS: dict = field(default_factory=lambda: {
-        "cleaner": (150, 600),
-        "delivery driver": (200, 750),
-        "freelancer": (250, 1200),
-        "mechanic": (300, 900),
-        "developer": (400, 1600),
-        "chef": (250, 850),
-        "driver": (200, 700),
-        "security guard": (200, 650),
-        "trader": (100, 2000),
-        "construction worker": (300, 950),
+        "cleaner": (7_500, 30_000),
+        "delivery driver": (10_000, 37_500),
+        "freelancer": (12_500, 60_000),
+        "mechanic": (15_000, 45_000),
+        "developer": (20_000, 80_000),
+        "chef": (12_500, 42_500),
+        "driver": (10_000, 35_000),
+        "security guard": (10_000, 32_500),
+        "trader": (5_000, 100_000),
+        "construction worker": (15_000, 47_500),
     })
 
     # /loot
     LOOT_COOLDOWN_S: int = 2 * 3600
     LOOT_SUCCESS_RATE: float = 0.55
-    LOOT_MIN: int = 100
-    LOOT_MAX: int = 1500
+    LOOT_MIN: int = 50_000
+    LOOT_MAX: int = 500_000
 
     # /hunt
     HUNT_COOLDOWN_S: int = 4 * 3600
     HUNT_SUCCESS_RATE: float = 0.5
     HUNT_MIN_STAKE: int = 200
-    HUNT_MAX_STAKE: int = 250_000          # was uncapped -- let a big enough stake x4 reward snowball a balance
+    HUNT_MAX_STAKE: int = 10_000_000       # was uncapped -- let a big enough stake x4 reward snowball a balance
     HUNT_REWARD_MULT: tuple = (1.5, 4.0)   # win: stake * random in this range
     HUNT_LOSS_MULT: tuple = (0.5, 1.0)     # loss: stake * random in this range, deducted
 
@@ -68,17 +72,17 @@ class EconomyConfig:
     # rare zero, common medium, rare big. No loss branch at all.
     LUCK_ZERO_RATE: float = 0.10   # rare: nothing this time
     LUCK_BIG_RATE: float = 0.15    # rare: big win (remainder, 0.75, is the common medium tier)
-    LUCK_MEDIUM_MIN: int = 500
-    LUCK_MEDIUM_MAX: int = 5000
-    LUCK_BIG_MIN: int = 8000
-    LUCK_BIG_MAX: int = 25000
+    LUCK_MEDIUM_MIN: int = 100_000
+    LUCK_MEDIUM_MAX: int = 500_000
+    LUCK_BIG_MIN: int = 1_000_000
+    LUCK_BIG_MAX: int = 3_000_000
 
     # House wager caps (0 = no cap -- unlimited wager allowed vs house)
     RPS_MAX_HOUSE_WAGER: int = 250_000
     COIN_MAX_HOUSE_WAGER: int = 250_000
     DICE_MAX_HOUSE_WAGER: int = 250_000
     # HighLow (solo one-shot game vs house)
-    HIGHLOW_MAX_HOUSE_WAGER: int = 250_000
+    HIGHLOW_MAX_HOUSE_WAGER: int = 500_000
     HIGHLOW_MAX_ROUNDS: int = 15      # unused now that HighLow is one-shot, kept in case a streak mode returns
     DART_MAX_WAGER: int = 5_000_000
     BJ_MAX_HOUSE_WAGER: int = 250_000
@@ -112,7 +116,7 @@ class EconomyConfig:
     DOOR_DURATION_S: int = 5 * 60
 
     # Starting balance for new players
-    STARTING_BALANCE: int = 5000
+    STARTING_BALANCE: int = 100_000
 
 
 ECONOMY = EconomyConfig()
