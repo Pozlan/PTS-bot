@@ -75,8 +75,7 @@ async def help_cmd(message: Message):
 async def bal(message: Message):
     """Balance is global (see economy.GLOBAL_ID) — same number in every
     group. Also surfaces anything currently locked in an open challenge you
-    hosted, so a stuck reservation is never invisible again. total_wagered
-    lives here now -- moved off /stats, which is pure flex these days."""
+    hosted, so a stuck reservation is never invisible again."""
     async with get_session() as session:
         user = message.from_user
         await get_or_create_user(session, user.id, user.full_name, user.username)
@@ -88,7 +87,6 @@ async def bal(message: Message):
     if state.reserved > 0:
         lines.append(f"{pe('afk')} {format_amount(state.reserved)} locked in an open challenge")
         lines.append(f"available: {format_amount(available_balance(state))}")
-    lines.append(f"{pe('wager')} {format_amount(state.total_wagered)} total wagered")
     await message.reply("\n".join(lines))
 
 
