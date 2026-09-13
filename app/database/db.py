@@ -18,6 +18,8 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSe
 _PENDING_COLUMNS = [
     ("player_state", "total_wagered", "BIGINT DEFAULT 0"),
     ("player_state", "equipped_gift_id", "INTEGER REFERENCES gifts(id)"),
+    ("player_state", "robbed_immune_until", "TIMESTAMP"),
+    ("player_state", "hits_since_protection", "INTEGER DEFAULT 0"),
 ]
 
 
@@ -64,4 +66,3 @@ async def get_session():
         except Exception:
             await session.rollback()
             raise
-            
