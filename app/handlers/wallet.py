@@ -32,9 +32,15 @@ async def start(message: Message):
 
 @router.message(Command("help"))
 async def help_cmd(message: Message):
+    # <blockquote expandable> is real Telegram HTML (needs ParseMode.HTML,
+    # already the bot default) -- renders collapsed with a tap-to-expand
+    # affordance, same UI as manually quoting + collapsing text in the
+    # client. Tagline stays outside it so there's still something to read
+    # before anyone expands the full command list.
     await message.reply(
         f"{pe('play')} <b>pts</b>\n\n"
         "mini-games, gambling, tips, and flex for the group. fast rounds, real payouts.\n\n"
+        "<blockquote expandable>"
         "<code>/farm</code> - daily claim\n"
         "<code>/work</code> - take a job\n"
         "<code>/loot</code> - chance find\n"
@@ -55,7 +61,8 @@ async def help_cmd(message: Message):
         "<code>/bal</code> - your balance\n"
         "<code>/stats</code> - your record\n"
         "<code>/top</code> - leaderboard here\n"
-        "<code>/gtop</code> - leaderboard everywhere\n\n"
+        "<code>/gtop</code> - leaderboard everywhere"
+        "</blockquote>\n\n"
         "DM me <code>/bal</code>, <code>/stats</code>, or <code>/gtop</code> any time to check in privately."
     )
 
