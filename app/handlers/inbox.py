@@ -10,9 +10,9 @@ being silently ignored.
 """
 from pathlib import Path
 
-from aiogram import Router, F
+from aiogram import Bot, Router, F
 from aiogram.filters import Command
-from aiogram.types import Message, FSInputFile
+from aiogram.types import Message, FSInputFile, InlineKeyboardMarkup, InlineKeyboardButton
 from sqlalchemy import select, desc
 
 from app.database.db import get_session
@@ -29,7 +29,7 @@ BANNER_PATH = Path(__file__).resolve().parent.parent.parent / "assets" / "pts_ba
 
 
 @router.message(Command("start"))
-async def start_dm(message: Message):
+async def start_dm(message: Message, bot: Bot):
     user = message.from_user
     async with get_session() as session:
         await get_or_create_user(session, user.id, user.full_name, user.username)
@@ -42,10 +42,18 @@ async def start_dm(message: Message):
         "/help to see the games.\n\n"
         f"{pe('play')} no group yet? join @PozzVerse to play with others."
     )
+    # startgroup=true is the magic param -- tapping this opens Telegram's
+    # own group picker and adds the bot directly, no manual @username
+    # search needed. bot.get_me() is cached by aiogram after the first
+    # call, so this isn't a fresh API hit on every /start.
+    me = await bot.get_me()
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="➕ Add to Group", url=f"https://t.me/{me.username}?startgroup=true")
+    ]])
     if BANNER_PATH.exists():
-        await message.answer_photo(FSInputFile(BANNER_PATH), caption=caption)
+        await message.answer_photo(FSInputFile(BANNER_PATH), caption=caption, reply_markup=kb)
     else:
-        await message.reply(caption)
+        await message.reply(caption, reply_markup=kb)
 
 
 @router.message(Command("bal"))
