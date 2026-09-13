@@ -60,7 +60,6 @@ async def bal_dm(message: Message):
     if state.reserved > 0:
         lines.append(f"{pe('afk')} {format_amount(state.reserved)} locked in an open challenge")
         lines.append(f"available: {format_amount(available_balance(state))}")
-    lines.append(f"{pe('wager')} {format_amount(state.total_wagered)} total wagered")
     await message.reply("\n".join(lines))
 
 
@@ -142,4 +141,3 @@ async def fallback_dm(message: Message):
         f"{pe('afk')} that one's group-only. join @Medhanit to play.\n"
         "in here you can check <code>/bal</code>, <code>/stats</code>, and <code>/gtop</code>."
     )
-    
