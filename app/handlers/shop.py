@@ -44,25 +44,27 @@ _pending: dict[int, dict] = {}
 
 
 def _category_kb(categories: list[dict]) -> InlineKeyboardMarkup:
-    rows = [
-        [InlineKeyboardButton(text=f"{i}. {c['category']}", callback_data=f"shop:cat:{c['category']}")]
+    # Numbers only -- the category names are already spelled out in the
+    # message text right above these buttons (see _categories_view), so
+    # repeating the full name on the button itself was just dead width.
+    buttons = [
+        InlineKeyboardButton(text=str(i), callback_data=f"shop:cat:{c['category']}")
         for i, c in enumerate(categories, start=1)
     ]
+    rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
+    rows.append([InlineKeyboardButton(text="cancel", callback_data="shop:cancel")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _tier_kb(category: str, tiers: list[dict]) -> InlineKeyboardMarkup:
-    rows = [
-        [InlineKeyboardButton(
-            # Plain f"{n:,}" here, NOT format_amount() -- that embeds a
-            # <tg-emoji> tag for the pts symbol, which is fine in message
-            # text but buttons only render plain text, so the raw tag
-            # would show up literally instead of rendering as an emoji.
-            text=f"{TIER_LABEL[t['tier']]} · {t['price']:,} ({t['available']}/{t['total']} left)",
-            callback_data=f"shop:tier:{category}:{t['tier']}",
-        )]
+    # Short label only (Low/Mid/High) -- price and stock count are already
+    # in the message text above (see _tiers_view), same reasoning as
+    # category buttons. All 3 tiers fit one row instead of stacking tall.
+    buttons = [
+        InlineKeyboardButton(text=TIER_LABEL[t['tier']], callback_data=f"shop:tier:{category}:{t['tier']}")
         for t in tiers
     ]
+    rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
     rows.append([InlineKeyboardButton(text="« back", callback_data="shop:back:categories")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -109,6 +111,12 @@ async def shop_cmd(message: Message):
 
     text, kb = _categories_view(categories)
     await message.reply(text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "shop:cancel")
+async def on_shop_cancel(callback: CallbackQuery):
+    await callback.message.edit_text("cancelled.")
+    await callback.answer()
 
 
 @router.callback_query(F.data == "shop:back:categories")
@@ -204,6 +212,40 @@ async def on_item(callback: CallbackQuery):
     )
 
 
+SELLBACK_PAGE_SIZE = 10
+
+
+def _sellback_view(owned: list, page: int) -> tuple[str, InlineKeyboardMarkup]:
+    total_pages = max(1, (len(owned) + SELLBACK_PAGE_SIZE - 1) // SELLBACK_PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+    start = page * SELLBACK_PAGE_SIZE
+    page_items = owned[start:start + SELLBACK_PAGE_SIZE]
+
+    lines = [f"sell back for {int(ECONOMY.GIFT_REFUND_RATE * 100)}% of price. pick one:", ""]
+    for i, g in enumerate(page_items, start=start + 1):
+        lines.append(f"{i}. {raw_tag(g.emoji_id)} ({esc(g.category)}) · {format_amount(g.price)}")
+    if total_pages > 1:
+        lines.append("")
+        lines.append(f"page {page + 1}/{total_pages}")
+
+    buttons = [
+        InlineKeyboardButton(text=str(i), callback_data=f"sb:pick:{g.id}")
+        for i, g in enumerate(page_items, start=start + 1)
+    ]
+    rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="« prev", callback_data=f"sb:page:{page - 1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton(text="next »", callback_data=f"sb:page:{page + 1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="cancel", callback_data="sb:cancel")])
+
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 @router.message(Command("sellback"))
 async def sellback_cmd(message: Message):
     async with get_session() as session:
@@ -215,14 +257,24 @@ async def sellback_cmd(message: Message):
         await message.reply("you don't own any gifts to sell back.")
         return
 
-    rows = [
-        [InlineKeyboardButton(text=f"{i}", callback_data=f"sb:pick:{g.id}")]
-        for i, g in enumerate(owned, start=1)
-    ]
-    lines = [f"sell back for {int(ECONOMY.GIFT_REFUND_RATE * 100)}% of price. pick one:", ""]
-    for i, g in enumerate(owned, start=1):
-        lines.append(f"{i}. {raw_tag(g.emoji_id)} ({esc(g.category)}) · {format_amount(g.price)}")
-    await message.reply("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    text, kb = _sellback_view(owned, page=0)
+    await message.reply(text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("sb:page:"))
+async def on_sellback_page(callback: CallbackQuery):
+    page = int(callback.data.split(":", 2)[2])
+    async with get_session() as session:
+        owned = await player_cabinet(session, callback.from_user.id)
+
+    if not owned:
+        await callback.message.edit_text("you don't own any gifts to sell back.")
+        await callback.answer()
+        return
+
+    text, kb = _sellback_view(owned, page)
+    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("sb:pick:"))
