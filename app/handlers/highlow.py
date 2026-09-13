@@ -100,7 +100,7 @@ async def on_highlow_action(callback: CallbackQuery):
             f"Card was <b>{first_card}</b>, next was <b>{second_card}</b>. correct!\n\n"
             f"{pe('top')} <b>YOU WIN</b>\n"
             f"+{format_amount(net)}\n"
-            f"{react(win_category(net))}"
+            f"{react(win_category(net), amount=net)}"
         )
     else:
         text = (
@@ -108,7 +108,7 @@ async def on_highlow_action(callback: CallbackQuery):
             f"Card was <b>{first_card}</b>, next was <b>{second_card}</b>\n\n"
             f"{pe('skull')} <b>YOU LOSE</b>\n"
             f"-{format_amount(wager)}\n"
-            f"{react(loss_category(wager))}"
+            f"{react(loss_category(wager), amount=wager)}"
         )
 
     await callback.message.edit_text(text)
