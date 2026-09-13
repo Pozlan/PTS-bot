@@ -8,38 +8,57 @@ add a new datetime field without following the convention it describes).
 
 - `/start` (short welcome) + `/help` (full command list), `/bal`, `/top`, `/stats`
 - `/farm`, `/work` (interactive — pick a job from buttons), `/loot`,
-  `/hunt`, `/luck` — full earning loop
-- `/tip`, `/rob` (both reply-based)
-- `/protect` + Open door button
+  `/hunt`, `/luck` — full earning loop. Reward ranges and cooldowns live
+  in `app/config.py::EconomyConfig` — that's the single source of truth,
+  intentionally not duplicated here as literal numbers so this doc can't
+  go stale every time balancing changes.
+- `/tip`, `/rob` (both reply-based), `/protect` + Open door button
+- `/dart` — solo vs-house, one throw, uses Telegram's real animated dart
+  emoji. Tuned to zero expected value (push/lose/win/bullseye).
 - `/rps`, `/coin`, `/dice` — PvP challenge flow (create → accept →
   resolve, RPS adds a private simultaneous-choice step) **and** Play vs
-  Bot, **unlimited wager** (no house cap — removed after initial 250k
-  testing cap). Dice uses Telegram's native animated dice (`send_dice`)
-  for both modes, not a silently-picked number.
-- `/highlow` — one-shot higher/lower vs house (rebuilt twice now — first
-  from a two-player card compare into a multi-round streak game, then
-  simplified again into this one-shot version on request). First card is
-  always 2-12 so both directions are always legal to guess; the second
-  card is guaranteed to never equal the first, so there's no tie/push
-  case. One guess, immediate resolution, payout scales with how unlikely
-  the guess was. Also unlimited wager.
+  Bot, house wager cap set in config. Dice uses Telegram's native
+  animated dice (`send_dice`) for both modes, not a silently-picked number.
+- `/highlow` — one-shot higher/lower vs house. First card is always
+  2-12 so both directions are always legal to guess; the second card is
+  guaranteed to never equal the first, so there's no tie/push case. One
+  guess, immediate resolution, payout scales with how unlikely the guess
+  was.
+- `/cancel` — public self-service: bail on your own hosted PvP challenge
+  before anyone accepts it.
+- **Shop / gift economy** (`handlers/shop.py`, `services/gifts.py`) —
+  unique, one-of-one collectible gifts bought with pts. `/shop` walks
+  category → tier (if the category has one) → numbered items, all
+  button-driven. `/sellback` refunds a % of price and returns the gift to
+  stock. `/equip` picks which owned gift shows as your badge next to your
+  name in `/stats`, `/bal`, `/top`. Owner-only: `/addgift` (button flow or
+  pipe-syntax restock) and `/removegift` (delete unsold stock only —
+  never touches anything already bought).
+- **DM support** (`handlers/inbox.py`) — scoped on purpose: DMs are for
+  checking in (`/bal`, `/stats`, `/gtop`), not for playing. Games,
+  farming, tipping, robbing etc. all stay group-only.
+- **Owner tools** (`handlers/admin.py`) — `/grant`, `/deduct` (both
+  reply-based, silent to everyone else), `/reset` (force-refund every
+  open challenge bot-wide), `/reconcile` (fix stuck reserved balances),
+  `/emojiid` (extract a custom emoji's ID for wiring into game messages).
+  Every owner action still writes to the Transaction ledger like any
+  normal balance change, so it's auditable.
 - Group-scoped economy: every balance/stat is keyed to `(user, group)`
 - Atomic, race-safe balance mutations with an append-only transaction ledger
 - A real response engine (`app/services/response_engine.py`) driving
   contextual, varied text instead of hardcoded strings
-- `/grant <amount>` (owner-only, silent to everyone else) — set your own
-  or another player's balance up, e.g. for seeding a founder balance
-- `/emojiid` (owner-only) — extract a custom (premium) emoji's ID from a
-  message, so it can be wired into game messages
 - `/stats` shows total lifetime pts wagered (RPS/Coin/Dice/HighLow only —
   `/hunt` doesn't share the same reservation mechanism this is tracked
   through, so it isn't counted; flag if you want that folded in)
 - 76 passing tests, including regression tests for the datetime bug below
+  (may be higher now — check `tests/` for the current count)
 
 ## What's not built yet (by design, see roadmap below)
 
-Blackjack, Slots, `/gconfig`, `/gstats`, challenge-expiry background
-sweep, Alembic migrations.
+Blackjack, Slots (config already has wager-cap placeholders for both —
+`BJ_MAX_HOUSE_WAGER`, `SLOTS_MAX_WAGER` — but no handler exists yet),
+`/gconfig`, `/gstats`, challenge-expiry background sweep, Alembic
+migrations.
 
 ## A real bug that was caught during manual testing — read this
 
@@ -88,7 +107,8 @@ app/
   games/
     rps.py                # pure game logic, no I/O — template for future engines
   handlers/
-    wallet.py, economy.py, social.py, rps.py   # Telegram-facing routers
+    wallet.py, economy.py, social.py, rps.py, coin.py, dice.py,
+    highlow.py, dart.py, pvp_common.py, shop.py, admin.py, inbox.py
   utils/
     keyboards.py, targeting.py
 tests/
@@ -115,6 +135,10 @@ built and don't change.
 - **Transaction** — append-only ledger, every balance change ever made
 - **GameHistory** — one row per completed game, feeds `/stats`, `/gstats`,
   and future response-engine context (recent games, opponent history)
+- **Gift** — a unique, one-of-one shop item: category, tier (nullable —
+  Limited Edition items skip tiers), price, emoji id, and
+  `owner_user_id` (null = unsold, in stock). Deleting a row is only ever
+  allowed while `owner_user_id` is null — see `services/gifts.py::delete_gift`.
 
 ## Transaction model
 
