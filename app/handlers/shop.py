@@ -69,10 +69,11 @@ def _tier_kb(category: str, tiers: list[dict]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _item_kb(items: list, category: str, tier: str | None) -> InlineKeyboardMarkup:
+def _item_kb(unsold: list, category: str, tier: str | None) -> InlineKeyboardMarkup:
+    """unsold must already be filtered to unowned gifts -- see _show_items."""
     buttons = [
         InlineKeyboardButton(text=str(i), callback_data=f"shop:item:{g.id}")
-        for i, g in enumerate(items, start=1) if g.owner_user_id is None
+        for i, g in enumerate(unsold, start=1)
     ]
     rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
     # Tiered category -> back goes to its tier list. Limited Edition (no
@@ -170,17 +171,24 @@ async def _show_items(callback: CallbackQuery, category: str, tier: str | None):
     async with get_session() as session:
         items = await get_items(session, category, tier)
 
+    # Sold items don't appear at all anymore -- not even struck through.
+    # Numbers are sequential over what's actually buyable right now, not
+    # over the full historical row set.
+    unsold = [g for g in items if g.owner_user_id is None]
     label = f"{esc(category)} · {TIER_LABEL[tier]}" if tier else esc(category)
+
+    if not unsold:
+        back_cb = f"shop:back:tier:{category}" if tier else "shop:back:categories"
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« back", callback_data=back_cb)]])
+        await callback.message.edit_text(f"<b>{label}</b>\n\nsold out. check back later.", reply_markup=kb)
+        return
+
     lines = [f"<b>{label}</b>", ""]
-    for i, g in enumerate(items, start=1):
-        tag = raw_tag(g.emoji_id)
-        if g.owner_user_id is not None:
-            lines.append(f"{i}. {tag} <s>SOLD</s>")
-        else:
-            lines.append(f"{i}. {tag} · {format_amount(g.price)} pts")
+    for i, g in enumerate(unsold, start=1):
+        lines.append(f"{i}. {raw_tag(g.emoji_id)} · {format_amount(g.price)} pts")
     lines.append("")
     lines.append("tap a number to buy.")
-    await callback.message.edit_text("\n".join(lines), reply_markup=_item_kb(items, category, tier))
+    await callback.message.edit_text("\n".join(lines), reply_markup=_item_kb(unsold, category, tier))
 
 
 @router.callback_query(F.data.startswith("shop:item:"))
