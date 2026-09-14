@@ -608,7 +608,11 @@ async def on_setprice_category(callback: CallbackQuery):
     if has_tiers:
         rows = [
             [InlineKeyboardButton(
-                text=f"{TIER_LABEL[t['tier']]} (currently {format_amount(t['price'])})",
+                # Plain f"{n:,}" here, NOT format_amount() -- buttons only
+                # render plain text, so format_amount()'s embedded
+                # <tg-emoji> tag would show up literally instead of
+                # rendering as an emoji.
+                text=f"{TIER_LABEL[t['tier']]} (currently {t['price']:,})",
                 callback_data=f"sp:tier:{category}:{t['tier']}",
             )]
             for t in tiers
