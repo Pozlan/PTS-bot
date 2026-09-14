@@ -63,10 +63,18 @@ async def get_tiers(session: AsyncSession, category: str) -> list[dict]:
 
     tiers = []
     for tier, items in by_tier.items():
-        available = sum(1 for g in items if g.owner_user_id is None)
+        unsold = [g for g in items if g.owner_user_id is None]
+        available = len(unsold)
+        # Prefer an unsold item's price -- that's what a buyer actually
+        # pays right now. /setprice only ever updates unsold rows, so once
+        # a tier has a price split (old sold stock vs a repriced restock),
+        # items[0] with no ORDER BY isn't reliably "the current price"
+        # anymore. Only fall back to any item's price when fully sold out,
+        # just to have something to display.
+        price = unsold[0].price if unsold else items[0].price
         tiers.append({
             "tier": tier,
-            "price": items[0].price,
+            "price": price,
             "available": available,
             "total": len(items),
         })
@@ -109,9 +117,15 @@ async def purchase_gift(session: AsyncSession, state: PlayerState, gift: Gift, g
 
 async def sell_back(session: AsyncSession, state: PlayerState, gift: Gift, group_id: int) -> int:
     """Sells an owned gift back to the shop (not to another player) for
-    ECONOMY.GIFT_REFUND_RATE of its price. The gift resets to unowned and
-    goes back into stock at the SAME price -- next buyer pays full price
-    again, this player just ate the cut. Returns the refund amount.
+    ECONOMY.GIFT_REFUND_RATE of the category/tier's CURRENT going price --
+    not what this player originally paid. If the price has gone up since
+    they bought it, they profit on the sale. That's the incentive to buy
+    early and sell later, not a guaranteed loss for holding a gift while
+    it appreciates. The gift is also relisted at that current price (not
+    left at its old one), so it doesn't undercut the rest of the shelf --
+    see handlers/shop.py's item listing, which now hides sold items
+    entirely rather than showing SOLD, so a stale-priced returned item
+    would otherwise sit there looking like a normal, cheaper option.
 
     If the gift being sold is the seller's currently equipped badge, that
     gets cleared too -- otherwise their equipped_gift_id would keep
@@ -120,13 +134,24 @@ async def sell_back(session: AsyncSession, state: PlayerState, gift: Gift, group
     if gift.owner_user_id != state.user_id:
         raise GiftError("not_yours")
 
-    refund = int(gift.price * ECONOMY.GIFT_REFUND_RATE)
+    siblings = list((await session.execute(
+        select(Gift).where(Gift.category == gift.category, Gift.tier == gift.tier)
+    )).scalars())
+    unsold = [g for g in siblings if g.owner_user_id is None]
+    # If nothing else is currently unsold (whole tier's sold out), there's
+    # no divergent "current price" to chase -- /setprice refuses to touch
+    # a fully sold-out tier, so every row in it is still at the same
+    # price. Falling back to this gift's own price is exactly that value.
+    current_price = unsold[0].price if unsold else gift.price
+
+    refund = int(current_price * ECONOMY.GIFT_REFUND_RATE)
 
     if state.equipped_gift_id == gift.id:
         state.equipped_gift_id = None
 
     gift.owner_user_id = None
     gift.purchased_at = None
+    gift.price = current_price
 
     await adjust_balance(session, state, refund, "shop", ref=f"sold back gift#{gift.id}", group_id=group_id)
     return refund
@@ -162,15 +187,22 @@ async def get_stock_overview(session: AsyncSession) -> list[dict]:
                 by_tier.setdefault(g.tier, []).append(g)
             tier_rows = []
             for tier, items in by_tier.items():
-                available = sum(1 for g in items if g.owner_user_id is None)
-                tier_rows.append({"tier": tier, "available": available, "total": len(items), "price": items[0].price})
+                unsold = [g for g in items if g.owner_user_id is None]
+                available = len(unsold)
+                # Same fix as get_tiers() above -- prefer an unsold item's
+                # price so /stock reflects a /setprice change, not a stale
+                # sold item's original price.
+                price = unsold[0].price if unsold else items[0].price
+                tier_rows.append({"tier": tier, "available": available, "total": len(items), "price": price})
             tier_rows.sort(key=lambda t: TIER_ORDER.get(t["tier"], 99))
             overview.append({"category": category, "tiers": tier_rows, "flat": None})
         else:
-            available = sum(1 for g in gifts if g.owner_user_id is None)
+            unsold = [g for g in gifts if g.owner_user_id is None]
+            available = len(unsold)
+            price = unsold[0].price if unsold else gifts[0].price
             overview.append({
                 "category": category, "tiers": None,
-                "flat": {"available": available, "total": len(gifts), "price": gifts[0].price},
+                "flat": {"available": available, "total": len(gifts), "price": price},
             })
     return overview
 
