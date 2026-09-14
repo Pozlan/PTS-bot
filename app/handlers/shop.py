@@ -554,6 +554,150 @@ async def _create_gifts(category: str, tier: str | None, price: int, emoji_ids: 
             session.add(Gift(category=category, tier=tier, emoji_id=eid, price=price))
 
 
+# /setprice -- owner-only. Bulk-updates the price of every UNSOLD gift in
+# a category (+ tier, if it has one). Sold gifts keep whatever price they
+# were actually bought at -- that's a historical record on the Gift row,
+# not something to silently rewrite out from under a past sale. Mirrors
+# /removegift's flow: category -> tier -> type new price -> confirm.
+_pending_price: dict[int, dict] = {}
+
+
+@router.message(Command("setprice"))
+async def setprice_cmd(message: Message):
+    if message.from_user.id not in settings.owner_id_set:
+        return  # silently ignore -- no error text, so it doesn't hint the command exists
+
+    async with get_session() as session:
+        categories = await get_categories(session)
+    if not categories:
+        await message.reply("shop's empty, nothing to reprice.")
+        return
+
+    _pending_price.pop(message.from_user.id, None)
+    rows = [
+        [InlineKeyboardButton(text=c["category"], callback_data=f"sp:cat:{c['category']}")]
+        for c in categories
+    ]
+    rows.append([InlineKeyboardButton(text="cancel", callback_data="sp:cancel")])
+    await message.reply("change the price of which category?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+@router.callback_query(F.data == "sp:cancel")
+async def on_setprice_cancel(callback: CallbackQuery):
+    if callback.from_user.id not in settings.owner_id_set:
+        await callback.answer()
+        return
+    _pending_price.pop(callback.from_user.id, None)
+    await callback.message.edit_text("cancelled, nothing changed.")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("sp:cat:"))
+async def on_setprice_category(callback: CallbackQuery):
+    if callback.from_user.id not in settings.owner_id_set:
+        await callback.answer()
+        return
+    category = callback.data.split(":", 2)[2]
+    async with get_session() as session:
+        categories = await get_categories(session)
+        meta = next((c for c in categories if c["category"] == category), None)
+        has_tiers = bool(meta and meta["has_tiers"])
+        tiers = await get_tiers(session, category) if has_tiers else []
+        items = await get_items(session, category, None) if not has_tiers else []
+
+    if has_tiers:
+        rows = [
+            [InlineKeyboardButton(
+                text=f"{TIER_LABEL[t['tier']]} (currently {format_amount(t['price'])})",
+                callback_data=f"sp:tier:{category}:{t['tier']}",
+            )]
+            for t in tiers
+        ]
+        rows.append([InlineKeyboardButton(text="cancel", callback_data="sp:cancel")])
+        await callback.message.edit_text(f"<b>{esc(category)}</b> -- which tier?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    else:
+        current = items[0].price if items else 0
+        _pending_price[callback.from_user.id] = {"category": category, "tier": None}
+        await callback.message.edit_text(f"<b>{esc(category)}</b> (currently {format_amount(current)})\n\nsend the new price:")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("sp:tier:"))
+async def on_setprice_tier(callback: CallbackQuery):
+    if callback.from_user.id not in settings.owner_id_set:
+        await callback.answer()
+        return
+    _, _, category, tier = callback.data.split(":", 3)
+    _pending_price[callback.from_user.id] = {"category": category, "tier": tier}
+    await callback.message.edit_text(f"<b>{esc(category)} · {TIER_LABEL[tier]}</b>\n\nsend the new price:")
+    await callback.answer()
+
+
+def _awaiting_setprice_input(message: Message) -> bool:
+    return (
+        message.text is not None
+        and not message.text.startswith("/")
+        and message.from_user is not None
+        and message.from_user.id in settings.owner_id_set
+        and message.from_user.id in _pending_price
+        and "new_price" not in _pending_price[message.from_user.id]
+    )
+
+
+@router.message(_awaiting_setprice_input)
+async def on_setprice_text(message: Message):
+    pending = _pending_price[message.from_user.id]
+    try:
+        new_price = parse_amount(message.text.strip())
+    except InvalidAmount as e:
+        await message.reply(f"bad price: {e}")
+        return
+
+    category, tier = pending["category"], pending["tier"]
+    async with get_session() as session:
+        items = await get_items(session, category, tier)
+    unsold = [g for g in items if g.owner_user_id is None]
+    if not unsold:
+        _pending_price.pop(message.from_user.id, None)
+        await message.reply("nothing unsold there to reprice.")
+        return
+
+    label = f"{esc(category)} · {TIER_LABEL[tier]}" if tier else esc(category)
+    old_price = unsold[0].price
+    pending["new_price"] = new_price
+    kb = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="yes, update it", callback_data="sp:confirm"),
+        InlineKeyboardButton(text="cancel", callback_data="sp:cancel"),
+    ]])
+    await message.reply(
+        f"update {len(unsold)} unsold item(s) in <b>{label}</b> from {format_amount(old_price)} to {format_amount(new_price)}?\n\n"
+        "sold items keep their original price.",
+        reply_markup=kb,
+    )
+
+
+@router.callback_query(F.data == "sp:confirm")
+async def on_setprice_confirm(callback: CallbackQuery):
+    if callback.from_user.id not in settings.owner_id_set:
+        await callback.answer()
+        return
+    pending = _pending_price.pop(callback.from_user.id, None)
+    if not pending or "new_price" not in pending:
+        await callback.answer("session expired, run /setprice again.", show_alert=True)
+        return
+
+    category, tier, new_price = pending["category"], pending["tier"], pending["new_price"]
+    async with get_session() as session:
+        items = await get_items(session, category, tier)
+        unsold = [g for g in items if g.owner_user_id is None]
+        for g in unsold:
+            g.price = new_price
+
+    label = f"{esc(category)} · {TIER_LABEL[tier]}" if tier else esc(category)
+    await callback.message.edit_text(f"updated {len(unsold)} unsold item(s) in {label} to {format_amount(new_price)}.")
+    await callback.answer("updated.")
+
+
 @router.message(Command("stock"))
 async def stock_cmd(message: Message):
     """Owner-only visual stock overview -- every category, every tier,
