@@ -333,6 +333,37 @@ async def on_sellback_cancel(callback: CallbackQuery):
     await callback.answer()
 
 
+def _equip_view(owned: list, page: int) -> tuple[str, InlineKeyboardMarkup]:
+    total_pages = max(1, (len(owned) + SELLBACK_PAGE_SIZE - 1) // SELLBACK_PAGE_SIZE)
+    page = max(0, min(page, total_pages - 1))
+    start = page * SELLBACK_PAGE_SIZE
+    page_items = owned[start:start + SELLBACK_PAGE_SIZE]
+
+    lines = ["pick a badge to display next to your name:", ""]
+    for i, g in enumerate(page_items, start=start + 1):
+        lines.append(f"{i}. {raw_tag(g.emoji_id)} ({esc(g.category)})")
+    if total_pages > 1:
+        lines.append("")
+        lines.append(f"page {page + 1}/{total_pages}")
+
+    buttons = [
+        InlineKeyboardButton(text=str(i), callback_data=f"equip:{g.id}")
+        for i, g in enumerate(page_items, start=start + 1)
+    ]
+    rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
+
+    nav = []
+    if page > 0:
+        nav.append(InlineKeyboardButton(text="« prev", callback_data=f"equip:page:{page - 1}"))
+    if page < total_pages - 1:
+        nav.append(InlineKeyboardButton(text="next »", callback_data=f"equip:page:{page + 1}"))
+    if nav:
+        rows.append(nav)
+    rows.append([InlineKeyboardButton(text="remove badge", callback_data="equip:none")])
+
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 @router.message(Command("equip"))
 async def equip_cmd(message: Message):
     async with get_session() as session:
@@ -344,18 +375,27 @@ async def equip_cmd(message: Message):
         await message.reply("you don't own any gifts yet. check /shop.")
         return
 
-    rows = [
-        [InlineKeyboardButton(text=f"{i}", callback_data=f"equip:{g.id}")]
-        for i, g in enumerate(owned, start=1)
-    ]
-    rows.append([InlineKeyboardButton(text="remove badge", callback_data="equip:none")])
-    lines = ["pick a badge to display next to your name:", ""]
-    for i, g in enumerate(owned, start=1):
-        lines.append(f"{i}. {raw_tag(g.emoji_id)} ({esc(g.category)})")
-    await message.reply("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    text, kb = _equip_view(owned, page=0)
+    await message.reply(text, reply_markup=kb)
 
 
-@router.callback_query(F.data.startswith("equip:"))
+@router.callback_query(F.data.startswith("equip:page:"))
+async def on_equip_page(callback: CallbackQuery):
+    page = int(callback.data.split(":", 2)[2])
+    async with get_session() as session:
+        owned = await player_cabinet(session, callback.from_user.id)
+
+    if not owned:
+        await callback.message.edit_text("you don't own any gifts yet. check /shop.")
+        await callback.answer()
+        return
+
+    text, kb = _equip_view(owned, page)
+    await callback.message.edit_text(text, reply_markup=kb)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("equip:") & ~F.data.startswith("equip:page:"))
 async def on_equip(callback: CallbackQuery):
     choice = callback.data.split(":", 1)[1]
     user = callback.from_user
@@ -668,24 +708,42 @@ async def on_setprice_text(message: Message):
     category, tier = pending["category"], pending["tier"]
     async with get_session() as session:
         items = await get_items(session, category, tier)
-    unsold = [g for g in items if g.owner_user_id is None]
-    if not unsold:
+    if not items:
         _pending_price.pop(message.from_user.id, None)
-        await message.reply("nothing unsold there to reprice.")
+        await message.reply("nothing there at all to reprice.")
         return
 
+    unsold = [g for g in items if g.owner_user_id is None]
     label = f"{esc(category)} · {TIER_LABEL[tier]}" if tier else esc(category)
-    old_price = unsold[0].price
     pending["new_price"] = new_price
+
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="yes, update it", callback_data="sp:confirm"),
         InlineKeyboardButton(text="cancel", callback_data="sp:cancel"),
     ]])
-    await message.reply(
-        f"update {len(unsold)} unsold item(s) in <b>{label}</b> from {format_amount(old_price)} to {format_amount(new_price)}?\n\n"
-        "sold items keep their original price.",
-        reply_markup=kb,
-    )
+
+    if unsold:
+        old_price = unsold[0].price
+        await message.reply(
+            f"update {len(unsold)} unsold item(s) in <b>{label}</b> from {format_amount(old_price)} to {format_amount(new_price)}?\n\n"
+            "sold items keep their original price.",
+            reply_markup=kb,
+        )
+    else:
+        # Fully sold out -- there's no unsold row to hold "the current
+        # price", so it has to live on the sold ones instead. This won't
+        # charge or refund anyone right now, but it DOES change what
+        # they'd get back if they /sellback later (see gifts.py::sell_back,
+        # which falls back to a sold sibling's price when nothing's
+        # unsold). That's intentional -- it's the only way to move the
+        # going rate on a tier that's completely sold out.
+        old_price = items[0].price
+        await message.reply(
+            f"<b>{label}</b> is fully sold out, nothing to sell right now.\n\n"
+            f"update the going rate from {format_amount(old_price)} to {format_amount(new_price)} anyway? "
+            f"this changes what current owners get back if they /sellback later, doesn't touch their balance now.",
+            reply_markup=kb,
+        )
 
 
 @router.callback_query(F.data == "sp:confirm")
@@ -702,11 +760,13 @@ async def on_setprice_confirm(callback: CallbackQuery):
     async with get_session() as session:
         items = await get_items(session, category, tier)
         unsold = [g for g in items if g.owner_user_id is None]
-        for g in unsold:
+        target = unsold if unsold else items  # fully sold out -> reprice the sold rows instead
+        for g in target:
             g.price = new_price
 
     label = f"{esc(category)} · {TIER_LABEL[tier]}" if tier else esc(category)
-    await callback.message.edit_text(f"updated {len(unsold)} unsold item(s) in {label} to {format_amount(new_price)}.")
+    scope = "unsold" if unsold else "sold-out"
+    await callback.message.edit_text(f"updated {len(target)} {scope} item(s) in {label} to {format_amount(new_price)}.")
     await callback.answer("updated.")
 
 
