@@ -23,44 +23,55 @@ async def streak(message: Message):
         state = await get_or_create_state(session, user.id, message.chat.id)
 
         result = await activate(session, state)
+        streak_best = state.streak_best
 
-        if not result.activated:
-            # No custom digit/gift tags in this branch (just pe('afk'), an
-            # already-established emoji), so a plain reply here is fine.
-            remaining = cd.format_remaining(result.remaining)
-            await message.reply(f"{pe('afk')} already activated. come back in {remaining} or the streak breaks.")
-            return
+    streak_count = result.streak_count
 
-        milestone_hit = result.milestone_hit
-        milestone_gift = result.milestone_gift
-        broken = result.broken
-        streak_count = result.streak_count
+    # Every branch below spells the count out in the custom d0-d9 digit
+    # glyphs (render_number) rather than plain text -- including the
+    # already-activated one, which previously bailed out early with a
+    # bare reply and was the only /streak response with no glyphs and no
+    # count in it at all. Coming back mid-cooldown is the single most
+    # common way this command gets run, so it's the response that most
+    # needed to show the number.
+    if not result.activated:
+        remaining = cd.format_remaining(result.remaining)
+        html_lines = [
+            f"{pe('bolt')} current streak: {render_number(streak_count)}",
+            "",
+            f"{pe('afk')} already activated. come back in {remaining} or the streak breaks.",
+        ]
+        if streak_best > streak_count:
+            html_lines.append(f"{pe('top')} your best run: {render_number(streak_best)}")
+        # safe_reply, not message.reply -- this branch now carries digit
+        # tags, so it can be rejected like any other custom-emoji send.
+        await safe_reply(message, "\n".join(html_lines))
+        return
 
-    # HTML version uses the custom digit glyphs (render_number) and, on a
-    # milestone, the freshly-minted badge's custom emoji -- both are
-    # user-supplied IDs Telegram hasn't necessarily validated, so this
-    # whole send can fail. The plain version below has no tags at all and
-    # is the guaranteed-to-send fallback (see safe_reply).
+    milestone_hit = result.milestone_hit
+    milestone_gift = result.milestone_gift
+    broken = result.broken
+
     html_lines = [f"{pe('gg')} streak activated: {render_number(streak_count)}"]
-    plain_lines = [f"streak activated: {streak_count}"]
 
     if broken:
-        html_lines += ["", f"{pe('sad')} you missed the window — streak restarted from 1."]
-        plain_lines += ["", "you missed the window — streak restarted from 1."]
+        html_lines += ["", f"{pe('sad')} you missed the window — streak restarted from {render_number(1)}."]
 
     if milestone_hit:
         html_lines += [
             "",
-            f"{raw_tag(milestone_gift.emoji_id)} <b>{milestone_hit}-day milestone!</b>",
+            f"{raw_tag(milestone_gift.emoji_id, '🔥')} <b>{render_number(milestone_hit)}-day milestone!</b>",
             f"{esc(user.full_name)} just earned an exclusive badge. check /stats.",
-        ]
-        plain_lines += [
-            "",
-            f"{milestone_hit}-day milestone!",
-            f"{user.full_name} just earned an exclusive badge. check /stats.",
         ]
     else:
         html_lines.append("come back within 24h or it resets.")
-        plain_lines.append("come back within 24h or it resets.")
 
-    await safe_reply(message, "\n".join(html_lines), "\n".join(plain_lines))
+    if streak_best > streak_count:
+        html_lines += ["", f"{pe('top')} your best run: {render_number(streak_best)}"]
+
+    # No hand-written plain twin anymore: safe_reply derives the degraded
+    # version by stripping each <tg-emoji> down to its own fallback
+    # character, so the count survives as normal digits (the d0-d9
+    # fallbacks are literally "0"-"9") instead of the message being
+    # rebuilt by hand and drifting out of sync with this one.
+    await safe_reply(message, "\n".join(html_lines))
