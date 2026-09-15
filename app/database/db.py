@@ -20,6 +20,10 @@ _PENDING_COLUMNS = [
     ("player_state", "equipped_gift_id", "INTEGER REFERENCES gifts(id)"),
     ("player_state", "robbed_immune_until", "TIMESTAMP"),
     ("player_state", "hits_since_protection", "INTEGER DEFAULT 0"),
+    ("player_state", "streak_count", "INTEGER DEFAULT 0"),
+    ("player_state", "streak_best", "INTEGER DEFAULT 0"),
+    ("player_state", "last_streak_at", "TIMESTAMP"),
+    ("player_state", "streak_milestone_claimed", "INTEGER DEFAULT 0"),
 ]
 
 
