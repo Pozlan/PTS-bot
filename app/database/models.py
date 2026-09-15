@@ -91,6 +91,17 @@ class PlayerState(Base):
 
     equipped_gift_id: Mapped[int | None] = mapped_column(ForeignKey("gifts.id"), nullable=True)
 
+    # /streak -- see services/streak.py. Global like everything else on this
+    # row (balances went global, see economy.GLOBAL_ID), so a player has
+    # exactly one streak across every group, not one per group.
+    streak_count: Mapped[int] = mapped_column(Integer, default=0)
+    streak_best: Mapped[int] = mapped_column(Integer, default=0)
+    last_streak_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    # Highest STREAK_MILESTONES day-count already rewarded, lifetime -- a
+    # streak that breaks and later climbs back through the same number
+    # does not mint a second badge for it.
+    streak_milestone_claimed: Mapped[int] = mapped_column(Integer, default=0)
+
     updated_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow, onupdate=utcnow)
 
 
