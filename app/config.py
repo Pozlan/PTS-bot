@@ -135,6 +135,44 @@ class EconomyConfig:
     # Starting balance for new players
     STARTING_BALANCE: int = 100_000
 
+    # /streak
+    # Rolling window, not calendar day -- must run /streak again within
+    # this many seconds of the last activation or the streak breaks. Below
+    # that (i.e. < 24h since last activation) it's just "already claimed
+    # today, come back later," same shape as /farm's cooldown.
+    STREAK_WINDOW_S: int = 24 * 3600
+    # Hard deadline: activating at or after this many seconds since the
+    # last activation breaks the streak (resets to 1) instead of
+    # continuing it. Two bounds are required, not one -- STREAK_WINDOW_S
+    # alone only rejects activating too SOON (spam prevention); without
+    # this upper bound there is no way to ever activate too LATE, so a
+    # streak could never actually break. Set to 2x the window: the first
+    # 24h are the "already claimed" cooldown, the next 24h are the grace
+    # period to come back before it's gone.
+    STREAK_BREAK_S: int = 2 * 24 * 3600
+
+    # day-count -> emoji ID of the badge minted on reaching that day count.
+    # These are milestones, not stock: every player who reaches a given
+    # count gets their OWN fresh Gift row with this emoji (see
+    # services/streak.py::mint_streak_gift), not a shared one-of-one item.
+    # Lifetime-earned -- once claimed, a broken streak climbing back
+    # through the same number does not re-grant it (see
+    # PlayerState.streak_milestone_claimed).
+    STREAK_MILESTONES: dict = field(default_factory=lambda: {
+        3: "5447640143475261975",
+        10: "5447656636149681563",
+        15: "5447256654435337586",
+        20: "5447591434251158839",
+        30: "5447644863644320013",
+        50: "5438571934210082705",
+        60: "5447236223275910637",
+        90: "5458475383890394206",
+        120: "5447367030799877537",
+        150: "5447516298093282460",
+        180: "5447246917744478110",
+        210: "5458640241915084025",
+        300: "5447550357183939181",
+    })
+
 
 ECONOMY = EconomyConfig()
-    
