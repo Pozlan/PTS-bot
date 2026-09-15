@@ -1,12 +1,16 @@
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message
+from sqlalchemy import select, desc
 
-from app.services import cooldown as cd
 from app.database.db import get_session
-from app.services.economy import get_or_create_user, get_or_create_group, get_or_create_state
+from app.database.models import PlayerState, User, Transaction, Gift
+from app.services.economy import (
+    get_or_create_user, get_or_create_group, get_or_create_state, format_amount,
+    available_balance, GLOBAL_ID,
+)
+from app.services.gifts import badge_tag, player_cabinet
 from app.services.premium_emoji import pe, raw_tag, render_number
-from app.services.streak import activate
 from app.utils.html_esc import esc
 from app.utils.safe_reply import safe_reply
 
@@ -14,53 +18,176 @@ router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
 
-@router.message(Command("streak"))
-async def streak(message: Message):
+@router.message(Command("start"))
+async def start(message: Message):
+    """Kept short and formal on purpose -- the DM /start (inbox.py) carries
+    the full welcome copy, banner, and PTS mark; this one just confirms the
+    bot's alive in the group and points at /help."""
+    async with get_session() as session:
+        user = message.from_user
+        await get_or_create_user(session, user.id, user.full_name, user.username)
+        await get_or_create_group(session, message.chat.id, message.chat.title or "")
+        await get_or_create_state(session, user.id, message.chat.id)
+    await message.reply(f"{pe('play')} <b>pts</b> is live in this chat. use <code>/help</code> to see the commands.")
+
+
+@router.message(Command("help"))
+async def help_cmd(message: Message):
+    # <blockquote expandable> is real Telegram HTML (needs ParseMode.HTML,
+    # already the bot default) -- renders collapsed with a tap-to-expand
+    # affordance, same UI as manually quoting + collapsing text in the
+    # client. Tagline stays outside it so there's still something to read
+    # before anyone expands the full command list.
+    await message.reply(
+        f"{pe('play')} <b>pts</b>\n\n"
+        "mini-games, gambling, tips, and flex for the group. fast rounds, real payouts.\n\n"
+        "<blockquote expandable>"
+        "<code>/farm</code> - daily claim\n"
+        "<code>/work</code> - take a job\n"
+        "<code>/loot</code> - chance find\n"
+        "<code>/hunt &lt;amount&gt;</code> - risk it for more\n"
+        "<code>/luck</code> - daily gamble\n\n"
+        "<code>/rps &lt;amount&gt;</code> - rock paper scissors\n"
+        "<code>/coin &lt;amount&gt;</code> - coin flip\n"
+        "<code>/dice &lt;amount&gt;</code> - dice duel\n"
+        "<code>/highlow &lt;amount&gt;</code> - guess the next card\n"
+        "<code>/dart &lt;amount&gt;</code> - throw a dart\n"
+        "<code>/cancel</code> - refund your own unaccepted game\n\n"
+        "<code>/tip &lt;amount&gt;</code> - reply to send pts\n"
+        "<code>/rob</code> - reply to try a robbery\n"
+        "<code>/protect</code> - 24h robbery shield\n\n"
+        "<code>/shop</code> - spend pts on gifts\n"
+        "<code>/sellback</code> - sell a gift back\n"
+        "<code>/equip</code> - show a gift badge\n\n"
+        "<code>/bal</code> - your balance\n"
+        "<code>/stats</code> - your record\n"
+        "<code>/top</code> - leaderboard here\n"
+        "<code>/gtop</code> - leaderboard everywhere"
+        "</blockquote>\n\n"
+        "DM me <code>/bal</code>, <code>/stats</code>, or <code>/gtop</code> any time to check in privately."
+    )
+
+
+@router.message(Command("bal"))
+async def bal(message: Message):
+    """Balance is global (see economy.GLOBAL_ID) — same number in every
+    group. Also surfaces anything currently locked in an open challenge you
+    hosted, so a stuck reservation is never invisible again."""
     async with get_session() as session:
         user = message.from_user
         await get_or_create_user(session, user.id, user.full_name, user.username)
         await get_or_create_group(session, message.chat.id, message.chat.title or "")
         state = await get_or_create_state(session, user.id, message.chat.id)
+        badge = await badge_tag(session, state)
 
-        result = await activate(session, state)
+    lines = [f"<b>{esc(user.full_name)}</b>{badge}", format_amount(state.balance)]
+    if state.reserved > 0:
+        lines.append(f"{pe('afk')} {format_amount(state.reserved)} locked in an open challenge")
+        lines.append(f"available: {format_amount(available_balance(state))}")
+    await message.reply("\n".join(lines))
 
-        if not result.activated:
-            # No custom digit/gift tags in this branch (just pe('afk'), an
-            # already-established emoji), so a plain reply here is fine.
-            remaining = cd.format_remaining(result.remaining)
-            await message.reply(f"{pe('afk')} already activated. come back in {remaining} or the streak breaks.")
-            return
 
-        milestone_hit = result.milestone_hit
-        milestone_gift = result.milestone_gift
-        broken = result.broken
-        streak_count = result.streak_count
+@router.message(Command("top"))
+async def top(message: Message):
+    """Group-local leaderboard. Balances are global (see economy.GLOBAL_ID),
+    so 'local to this group' means: rank by global balance, but only
+    include players with actual transaction history in THIS group -- pulled
+    from the ledger, which still records the real group_id per action even
+    though the wallet itself isn't split per group anymore."""
+    async with get_session() as session:
+        group_member_ids = select(Transaction.user_id).where(Transaction.group_id == message.chat.id).distinct()
+        stmt = (
+            select(PlayerState, User, Gift.emoji_id)
+            .join(User, User.id == PlayerState.user_id)
+            .outerjoin(Gift, Gift.id == PlayerState.equipped_gift_id)
+            .where(PlayerState.group_id == GLOBAL_ID, PlayerState.user_id.in_(group_member_ids))
+            .order_by(desc(PlayerState.balance))
+            .limit(10)
+        )
+        rows = (await session.execute(stmt)).all()
 
-    # HTML version uses the custom digit glyphs (render_number) and, on a
-    # milestone, the freshly-minted badge's custom emoji -- both are
-    # user-supplied IDs Telegram hasn't necessarily validated, so this
-    # whole send can fail. The plain version below has no tags at all and
-    # is the guaranteed-to-send fallback (see safe_reply).
-    html_lines = [f"{pe('gg')} streak activated: {render_number(streak_count)}"]
-    plain_lines = [f"streak activated: {streak_count}"]
+    if not rows:
+        await message.reply(f"{pe('top')} nobody's played in this group yet.")
+        return
 
-    if broken:
-        html_lines += ["", f"{pe('sad')} you missed the window — streak restarted from 1."]
-        plain_lines += ["", "you missed the window — streak restarted from 1."]
+    lines = [f"{pe('top')} <b>LEADERBOARD</b>", ""]
+    for i, (state, player, badge_id) in enumerate(rows, start=1):
+        badge = f" {raw_tag(badge_id)}" if badge_id else ""
+        lines.append(f"{i}. {esc(player.display_name)}{badge} · {format_amount(state.balance)}")
+    lines.append("")
+    lines.append("this group only. <code>/gtop</code> for everyone, everywhere.")
+    await message.reply("\n".join(lines))
 
-    if milestone_hit:
-        html_lines += [
-            "",
-            f"{raw_tag(milestone_gift.emoji_id)} <b>{milestone_hit}-day milestone!</b>",
-            f"{esc(user.full_name)} just earned an exclusive badge. check /stats.",
-        ]
-        plain_lines += [
-            "",
-            f"{milestone_hit}-day milestone!",
-            f"{user.full_name} just earned an exclusive badge. check /stats.",
-        ]
+
+@router.message(Command("gtop"))
+async def gtop(message: Message):
+    """True global top 10, every player, every group."""
+    async with get_session() as session:
+        stmt = (
+            select(PlayerState, User, Gift.emoji_id)
+            .join(User, User.id == PlayerState.user_id)
+            .outerjoin(Gift, Gift.id == PlayerState.equipped_gift_id)
+            .where(PlayerState.group_id == GLOBAL_ID)
+            .order_by(desc(PlayerState.balance))
+            .limit(10)
+        )
+        rows = (await session.execute(stmt)).all()
+
+    if not rows:
+        await message.reply(f"{pe('top')} nobody's on the board yet. play something first.")
+        return
+
+    lines = [f"{pe('top')} <b>PTS GLOBAL LEADERBOARD</b>", ""]
+    for i, (state, player, badge_id) in enumerate(rows, start=1):
+        badge = f" {raw_tag(badge_id)}" if badge_id else ""
+        lines.append(f"{i}. {esc(player.display_name)}{badge} · {format_amount(state.balance)}")
+    await message.reply("\n".join(lines))
+
+
+@router.message(Command("stats"))
+async def stats(message: Message):
+    """Pure flex screen now -- no W/L, no win rate, no rank, no wager
+    (that's /bal's job). Just your name, your equipped badge, your
+    balance, and your gift cabinet from /shop."""
+    async with get_session() as session:
+        user = message.from_user
+        await get_or_create_user(session, user.id, user.full_name, user.username)
+        await get_or_create_group(session, message.chat.id, message.chat.title or "")
+        state = await get_or_create_state(session, user.id, message.chat.id)
+        badge = await badge_tag(session, state)
+        cabinet = await player_cabinet(session, user.id)
+
+    # HTML version uses custom emoji tags throughout (badge, streak digits,
+    # every gift's emoji-id) -- any one of those being an ID Telegram
+    # doesn't recognize fails the WHOLE send. plain_lines mirrors the same
+    # content with zero tags, as the guaranteed-to-send fallback (see
+    # safe_reply) -- built in lockstep with lines so they can't drift.
+    lines = [f"<b>{esc(user.full_name)}</b>{badge}", format_amount(state.balance), ""]
+    plain_lines = [user.full_name, format_amount(state.balance), ""]
+
+    if state.streak_count:
+        lines.append(f"{pe('bolt')} <b>Streak:</b> {render_number(state.streak_count)} (best: {state.streak_best})")
+        plain_lines.append(f"Streak: {state.streak_count} (best: {state.streak_best})")
+        lines.append("")
+        plain_lines.append("")
+
+    lines.append(f"{pe('vip')} <b>Gift Cabinet</b>")
+    plain_lines.append("Gift Cabinet")
+    if not cabinet:
+        lines.append("empty. check /shop and start flexing.")
+        plain_lines.append("empty. check /shop and start flexing.")
     else:
-        html_lines.append("come back within 24h or it resets.")
-        plain_lines.append("come back within 24h or it resets.")
+        by_category: dict[str, list[Gift]] = {}
+        for g in cabinet:
+            by_category.setdefault(g.category, []).append(g)
+        for category, gifts in by_category.items():
+            tags = " ".join(raw_tag(g.emoji_id) for g in gifts)
+            lines.append(f"{esc(category)}: {tags}")
+            plain_lines.append(f"{category}: {len(gifts)} item(s)")
+        lines.append("")
+        plain_lines.append("")
+        worth = sum(g.price for g in cabinet)
+        lines.append(f"{raw_tag('5375296873982604963')} <b>Worth:</b> {worth:,}")
+        plain_lines.append(f"Worth: {worth:,}")
 
-    await safe_reply(message, "\n".join(html_lines), "\n".join(plain_lines))
+    await safe_reply(message, "\n".join(lines), "\n".join(plain_lines))
