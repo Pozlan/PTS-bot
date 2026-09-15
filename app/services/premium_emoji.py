@@ -51,6 +51,21 @@ EMOJI_IDS: dict[str, tuple[str, str]] = {
     "wager": ("5226928895189598791", "🥷"),
     "bolt": ("5893450623449305489", "⚡"),
     "logo": ("5852612609815093598", "✨"),  # PTS mark, used in the DM /start intro
+
+    # /streak digit glyphs -- used by render_number() below to spell out
+    # the streak count digit-by-digit instead of plain text. Keyed "d0"-
+    # "d9" (not bare "0"-"9") so they can't collide with any future
+    # semantic key that happens to be a digit string.
+    "d0": ("5447357736490649384", "0"),
+    "d1": ("5447584416274595624", "1"),
+    "d2": ("5447569199205468152", "2"),
+    "d3": ("5438196446694228650", "3"),
+    "d4": ("5435882198056060129", "4"),
+    "d5": ("5447616284931933807", "5"),
+    "d6": ("5447377755333214518", "6"),
+    "d7": ("5447609687862165448", "7"),
+    "d8": ("5447218643974767663", "8"),
+    "d9": ("5447303753046703974", "9"),
 }
 
 
@@ -69,4 +84,10 @@ def raw_tag(emoji_id: str, fallback: str = "🎁") -> str:
     EMOJI_IDS registry above -- used for /shop gifts, where the IDs are
     arbitrary catalog data (from /addgift) rather than named UI icons."""
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
-    
+
+
+def render_number(n: int) -> str:
+    """Spells out `n` as a run of the custom d0-d9 digit glyphs (e.g. 23
+    -> the '2' glyph followed by the '3' glyph) instead of plain text.
+    Used by /streak to show the current streak count."""
+    return "".join(pe(f"d{ch}") for ch in str(n))
