@@ -34,7 +34,11 @@ async def get_categories(session: AsyncSession) -> list[dict]:
     emoji (a HIGH-tier item for tiered categories -- picked deterministically
     so /shop looks the same each time; a genuinely random item for Limited
     Edition, since there's no 'high tier' to anchor on for those)."""
-    all_gifts = list((await session.execute(select(Gift))).scalars())
+    # "streak" is reserved for /streak milestone badges (see
+    # services/streak.py::mint_streak_gift) -- earned, never sold, so it
+    # never shows up as a browsable /shop category even though the rows
+    # live in the same `gifts` table.
+    all_gifts = list((await session.execute(select(Gift).where(Gift.category != "streak"))).scalars())
     by_category: dict[str, list[Gift]] = {}
     for g in all_gifts:
         by_category.setdefault(g.category, []).append(g)
