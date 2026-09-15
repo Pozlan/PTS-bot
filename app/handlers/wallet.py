@@ -12,6 +12,7 @@ from app.services.economy import (
 from app.services.gifts import badge_tag, player_cabinet
 from app.services.premium_emoji import pe, raw_tag, render_number
 from app.utils.html_esc import esc
+from app.utils.safe_reply import safe_reply
 
 router = Router()
 router.message.filter(F.chat.type.in_({"group", "supergroup"}))
@@ -156,13 +157,25 @@ async def stats(message: Message):
         badge = await badge_tag(session, state)
         cabinet = await player_cabinet(session, user.id)
 
+    # HTML version uses custom emoji tags throughout (badge, streak digits,
+    # every gift's emoji-id) -- any one of those being an ID Telegram
+    # doesn't recognize fails the WHOLE send. plain_lines mirrors the same
+    # content with zero tags, as the guaranteed-to-send fallback (see
+    # safe_reply) -- built in lockstep with lines so they can't drift.
     lines = [f"<b>{esc(user.full_name)}</b>{badge}", format_amount(state.balance), ""]
+    plain_lines = [user.full_name, format_amount(state.balance), ""]
+
     if state.streak_count:
         lines.append(f"{pe('bolt')} <b>Streak:</b> {render_number(state.streak_count)} (best: {state.streak_best})")
+        plain_lines.append(f"Streak: {state.streak_count} (best: {state.streak_best})")
         lines.append("")
+        plain_lines.append("")
+
     lines.append(f"{pe('vip')} <b>Gift Cabinet</b>")
+    plain_lines.append("Gift Cabinet")
     if not cabinet:
         lines.append("empty. check /shop and start flexing.")
+        plain_lines.append("empty. check /shop and start flexing.")
     else:
         by_category: dict[str, list[Gift]] = {}
         for g in cabinet:
@@ -170,7 +183,11 @@ async def stats(message: Message):
         for category, gifts in by_category.items():
             tags = " ".join(raw_tag(g.emoji_id) for g in gifts)
             lines.append(f"{esc(category)}: {tags}")
+            plain_lines.append(f"{category}: {len(gifts)} item(s)")
         lines.append("")
+        plain_lines.append("")
         worth = sum(g.price for g in cabinet)
         lines.append(f"{raw_tag('5375296873982604963')} <b>Worth:</b> {worth:,}")
-    await message.reply("\n".join(lines))
+        plain_lines.append(f"Worth: {worth:,}")
+
+    await safe_reply(message, "\n".join(lines), "\n".join(plain_lines))
