@@ -50,6 +50,7 @@ _TG_EMOJI_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 _ANY_TAG_RE = re.compile(r"<[^>]+>")
+_EMOJI_ID_RE = re.compile(r'<tg-emoji\s+emoji-id="([^"]*)"', re.IGNORECASE)
 
 
 def strip_tg_emoji(text: str) -> str:
@@ -67,6 +68,21 @@ def strip_all_html(text: str) -> str:
     return _html.unescape(_ANY_TAG_RE.sub("", text))
 
 
+def _log_rejection(html_text: str) -> None:
+    """Telegram's error text says a message was rejected but never says
+    WHICH emoji ID it choked on, so a bad ID is otherwise invisible --
+    you only see the degraded message in chat and have to guess. Logging
+    every ID in the rejected send narrows it to a short list you can
+    check one at a time with /emojiid, which is the only reliable way to
+    tell a good ID from a dead one."""
+    ids = _EMOJI_ID_RE.findall(html_text)
+    logger.warning(
+        "reply rejected -- degrading. custom emoji IDs in this message: %s",
+        ", ".join(ids) or "(none)",
+        exc_info=True,
+    )
+
+
 async def safe_reply(message: Message, html_text: str, plain_fallback: str | None = None, **kwargs) -> None:
     """Sends html_text. On a formatting/emoji rejection, degrades instead
     of vanishing. `plain_fallback` is optional -- omit it unless the
@@ -76,7 +92,7 @@ async def safe_reply(message: Message, html_text: str, plain_fallback: str | Non
         await message.reply(html_text, **kwargs)
         return
     except TelegramBadRequest:
-        logger.warning("reply rejected -- retrying without custom emoji tags", exc_info=True)
+        _log_rejection(html_text)
 
     stage_one = plain_fallback if plain_fallback is not None else strip_tg_emoji(html_text)
     try:
@@ -96,7 +112,7 @@ async def safe_answer(message: Message, html_text: str, plain_fallback: str | No
         await message.answer(html_text, **kwargs)
         return
     except TelegramBadRequest:
-        logger.warning("answer rejected -- retrying without custom emoji tags", exc_info=True)
+        _log_rejection(html_text)
 
     stage_one = plain_fallback if plain_fallback is not None else strip_tg_emoji(html_text)
     try:
