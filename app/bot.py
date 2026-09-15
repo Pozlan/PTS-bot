@@ -9,7 +9,7 @@ from aiohttp import web
 
 from app.config import settings, ECONOMY
 from app.database.db import init_db, get_session
-from app.handlers import economy, wallet, social, rps, coin, dice, highlow, dart, shop, pvp_common, admin, inbox
+from app.handlers import economy, wallet, social, rps, coin, dice, highlow, dart, shop, pvp_common, admin, inbox, streak
 from app.services.challenge import cancel_expired
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -20,6 +20,7 @@ def build_dispatcher() -> Dispatcher:
     dp = Dispatcher()
     dp.include_router(wallet.router)
     dp.include_router(economy.router)
+    dp.include_router(streak.router)
     dp.include_router(social.router)
     dp.include_router(rps.router)
     dp.include_router(coin.router)
@@ -89,4 +90,3 @@ async def run() -> None:
     bot.sweep_task = asyncio.create_task(_challenge_sweep_loop())
     logger.info("ptsbot starting polling")
     await dp.start_polling(bot)
-    
