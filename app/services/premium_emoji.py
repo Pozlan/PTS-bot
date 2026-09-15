@@ -93,14 +93,47 @@ def render_number(n: int) -> str:
     return "".join(pe(f"d{ch}") for ch in str(n))
 
 
-def render_digits(text: str) -> str:
-    """Same glyph substitution as render_number, but over an arbitrary
-    string: every 0-9 character becomes its custom glyph and everything
-    else passes through untouched.
+# /streak count, 1-10, one dedicated glyph per value -- as given, not
+# spelled digit-by-digit. Reuses the same ten IDs as d1-d9/d0 above
+# (10 -> the same asset as d0) since that's the exact list supplied for
+# this; it's a separate name so a call site is explicit about which
+# number it's rendering (the streak count) rather than an arbitrary digit
+# string.
+# value 1-10 -> (emoji_id, fallback char). 10's fallback is "0" because
+# it reuses the exact same asset as the d0 digit glyph above (that's the
+# ID given for it) -- the fallback has to match what that asset actually
+# depicts, not the word "10", or a degraded send would show the wrong
+# character for it.
+STREAK_COUNT_IDS: dict[int, tuple[str, str]] = {
+    1: EMOJI_IDS["d1"],
+    2: EMOJI_IDS["d2"],
+    3: EMOJI_IDS["d3"],
+    4: EMOJI_IDS["d4"],
+    5: EMOJI_IDS["d5"],
+    6: EMOJI_IDS["d6"],
+    7: EMOJI_IDS["d7"],
+    8: EMOJI_IDS["d8"],
+    9: EMOJI_IDS["d9"],
+    10: EMOJI_IDS["d0"],
+}
 
-    This exists for text that is mostly-but-not-entirely a number, like
-    cooldown.format_remaining()'s "3h 12m" -- /streak shows that inline
-    next to a glyph-rendered streak count, and mixing real digits with
-    glyph digits in one sentence looks broken. Note the unit letters
-    (h/m/s) stay as plain characters; only the numerals are swapped."""
-    return "".join(pe(f"d{ch}") if ch.isdigit() else ch for ch in text)
+
+def render_streak_count(n: int) -> str:
+    """The streak-count number ONLY (current streak, best run) -- this is
+    the one place the dedicated 1-10 glyphs are used. n=1..10 sends the
+    single matching glyph directly. n=11+ isn't covered by the supplied
+    list (milestones run up to 300 days), so it falls back to spelling
+    the number out digit-by-digit with the same underlying assets --
+    flag if a single-glyph scheme for the full range is wanted instead,
+    that needs more IDs than the 10 given.
+
+    ONLY the streak count goes through this. Cooldown remaining time
+    ("3h 12m") and other numbers in /streak stay plain text -- narrower
+    than the previous version, which spelled every number in the message
+    in glyphs. Fewer custom-emoji tags per message means fewer chances
+    for one bad ID to take down the whole send, which matters here since
+    this exact message has been failing since before any of these edits."""
+    if 1 <= n <= 10:
+        custom_id, fallback = STREAK_COUNT_IDS[n]
+        return f'<tg-emoji emoji-id="{custom_id}">{fallback}</tg-emoji>'
+    return "".join(pe(f"d{ch}") for ch in str(n))
