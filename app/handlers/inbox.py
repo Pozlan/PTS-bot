@@ -19,8 +19,10 @@ from app.database.db import get_session
 from app.database.models import PlayerState, User, Gift
 from app.services.economy import get_or_create_user, get_or_create_state, format_amount, available_balance, GLOBAL_ID
 from app.services.gifts import badge_tag, player_cabinet
-from app.services.premium_emoji import pe, raw_tag
+from app.services.premium_emoji import pe, raw_tag, render_number
+from app.utils.cabinet import render_cabinet
 from app.utils.html_esc import esc
+from app.utils.safe_reply import safe_reply
 
 router = Router()
 router.message.filter(F.chat.type == "private")
@@ -73,31 +75,38 @@ async def bal_dm(message: Message):
 
 @router.message(Command("stats"))
 async def stats_dm(message: Message):
-    """Pure flex screen now -- see handlers/wallet.py::stats for the
-    group version, this mirrors it exactly."""
+    """Mirrors handlers/wallet.py::stats exactly -- same cabinet renderer,
+    same streak line, same send ladder.
+
+    Two bugs fixed here. It used a bare message.reply() with no fallback,
+    so one unrecognized emoji ID meant the DM sent NOTHING and the player
+    got silence. And it carried the same unregistered hardcoded Worth-line
+    emoji ID as the group version, which is exactly the ID that triggered
+    that -- so DM /stats was reliably replying with nothing at all. It
+    also never showed the streak line the group version had.
+    """
     user = message.from_user
     async with get_session() as session:
         await get_or_create_user(session, user.id, user.full_name, user.username)
         state = await get_or_create_state(session, user.id)
         badge = await badge_tag(session, state)
         cabinet = await player_cabinet(session, user.id)
+        balance = state.balance
+        streak_count = state.streak_count
+        streak_best = state.streak_best
 
-    lines = [f"<b>{esc(user.full_name)}</b>{badge}", format_amount(state.balance), ""]
-    lines.append(f"{pe('vip')} <b>Gift Cabinet</b>")
-    if not cabinet:
-        lines.append("empty. check /shop in a group and start flexing.")
-    else:
-        by_category: dict[str, list[Gift]] = {}
-        for g in cabinet:
-            by_category.setdefault(g.category, []).append(g)
-        for category, gifts in by_category.items():
-            tags = " ".join(raw_tag(g.emoji_id) for g in gifts)
-            lines.append(f"{esc(category)}: {tags}")
+    lines = [f"<b>{esc(user.full_name)}</b>{badge}", format_amount(balance), ""]
+
+    if streak_count:
+        lines.append(f"{pe('bolt')} <b>Streak:</b> {render_number(streak_count)} (best: {streak_best})")
         lines.append("")
-        lines.append("")
-        worth = sum(g.price for g in cabinet)
-        lines.append(f"{raw_tag('5375296873982604963')} <b>Worth:</b> {worth:,}")
-    await message.reply("\n".join(lines))
+
+    lines += render_cabinet(cabinet)
+    # /shop is group-only, so the empty-cabinet nudge has to point there
+    # rather than at a /shop the player can't run from this chat.
+    lines = [l.replace("check /shop and start flexing.", "check /shop in a group and start flexing.") for l in lines]
+
+    await safe_reply(message, "\n".join(lines))
 
 
 @router.message(Command("gtop"))
