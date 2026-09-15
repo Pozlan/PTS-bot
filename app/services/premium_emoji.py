@@ -91,3 +91,16 @@ def render_number(n: int) -> str:
     -> the '2' glyph followed by the '3' glyph) instead of plain text.
     Used by /streak to show the current streak count."""
     return "".join(pe(f"d{ch}") for ch in str(n))
+
+
+def render_digits(text: str) -> str:
+    """Same glyph substitution as render_number, but over an arbitrary
+    string: every 0-9 character becomes its custom glyph and everything
+    else passes through untouched.
+
+    This exists for text that is mostly-but-not-entirely a number, like
+    cooldown.format_remaining()'s "3h 12m" -- /streak shows that inline
+    next to a glyph-rendered streak count, and mixing real digits with
+    glyph digits in one sentence looks broken. Note the unit letters
+    (h/m/s) stay as plain characters; only the numerals are swapped."""
+    return "".join(pe(f"d{ch}") if ch.isdigit() else ch for ch in text)
