@@ -10,7 +10,7 @@ from app.services.economy import (
     available_balance, GLOBAL_ID,
 )
 from app.services.gifts import badge_tag, player_cabinet
-from app.services.premium_emoji import pe, raw_tag
+from app.services.premium_emoji import pe, raw_tag, render_number
 from app.utils.html_esc import esc
 
 router = Router()
@@ -157,6 +157,9 @@ async def stats(message: Message):
         cabinet = await player_cabinet(session, user.id)
 
     lines = [f"<b>{esc(user.full_name)}</b>{badge}", format_amount(state.balance), ""]
+    if state.streak_count:
+        lines.append(f"{pe('bolt')} <b>Streak:</b> {render_number(state.streak_count)} (best: {state.streak_best})")
+        lines.append("")
     lines.append(f"{pe('vip')} <b>Gift Cabinet</b>")
     if not cabinet:
         lines.append("empty. check /shop and start flexing.")
