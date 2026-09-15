@@ -19,7 +19,7 @@ from app.database.db import get_session
 from app.database.models import PlayerState, User, Gift
 from app.services.economy import get_or_create_user, get_or_create_state, format_amount, available_balance, GLOBAL_ID
 from app.services.gifts import badge_tag, player_cabinet
-from app.services.premium_emoji import pe, raw_tag, render_number
+from app.services.premium_emoji import pe, raw_tag
 from app.utils.cabinet import render_cabinet
 from app.utils.html_esc import esc
 from app.utils.safe_reply import safe_reply
@@ -75,15 +75,16 @@ async def bal_dm(message: Message):
 
 @router.message(Command("stats"))
 async def stats_dm(message: Message):
-    """Mirrors handlers/wallet.py::stats exactly -- same cabinet renderer,
-    same streak line, same send ladder.
+    """Unchanged in output -- this is the version that already rendered
+    correctly, so the layout is preserved exactly and handlers/wallet.py
+    was brought in line with it instead of the other way round. The
+    cabinet block now comes from the shared renderer (utils/cabinet.py)
+    so the group and DM versions can't drift apart again.
 
-    Two bugs fixed here. It used a bare message.reply() with no fallback,
-    so one unrecognized emoji ID meant the DM sent NOTHING and the player
-    got silence. And it carried the same unregistered hardcoded Worth-line
-    emoji ID as the group version, which is exactly the ID that triggered
-    that -- so DM /stats was reliably replying with nothing at all. It
-    also never showed the streak line the group version had.
+    The one behavioural change: it sends through safe_reply now. A bare
+    message.reply() meant that if any emoji ID in here ever did get
+    rejected, the DM replied with nothing at all -- no error, no text,
+    just silence.
     """
     user = message.from_user
     async with get_session() as session:
@@ -92,19 +93,9 @@ async def stats_dm(message: Message):
         badge = await badge_tag(session, state)
         cabinet = await player_cabinet(session, user.id)
         balance = state.balance
-        streak_count = state.streak_count
-        streak_best = state.streak_best
 
     lines = [f"<b>{esc(user.full_name)}</b>{badge}", format_amount(balance), ""]
-
-    if streak_count:
-        lines.append(f"{pe('bolt')} <b>Streak:</b> {render_number(streak_count)} (best: {streak_best})")
-        lines.append("")
-
-    lines += render_cabinet(cabinet)
-    # /shop is group-only, so the empty-cabinet nudge has to point there
-    # rather than at a /shop the player can't run from this chat.
-    lines = [l.replace("check /shop and start flexing.", "check /shop in a group and start flexing.") for l in lines]
+    lines += render_cabinet(cabinet, "empty. check /shop in a group and start flexing.")
 
     await safe_reply(message, "\n".join(lines))
 
