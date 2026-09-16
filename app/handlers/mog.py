@@ -22,7 +22,7 @@ from app.services.challenge import ChallengeError, accept_challenge, create_chal
 from app.services.economy import get_or_create_group, get_or_create_state, get_or_create_user
 from app.services.game_common import finalize_pvp
 from app.services.mog import score
-from app.services.premium_emoji import pe
+from app.services.premium_emoji import mog_loser_stamp, mog_winner_stamp, pe
 from app.services.response_engine import react
 from app.utils.html_esc import esc
 
@@ -92,7 +92,7 @@ async def on_mog_accept(callback: CallbackQuery):
         info = await finalize_pvp(session, challenge, winner_id)
 
     flair = _random_flair()
-    header = f"{pe('mog_logo')} <b>MOG RESULTS</b> ( {flair} )"
+    header = f"{pe('mog_logo')} <b>MOG RESULTS</b> {flair}"
 
     if winner_id is None:
         text = f"{header}\n\n{react('mog_draw')}"
@@ -103,8 +103,8 @@ async def on_mog_accept(callback: CallbackQuery):
             winner_name, loser_name = info["acceptor_name"], info["creator_name"]
         text = (
             f"{header}\n\n"
-            f"{winner_name} {pe('mog_win')}\n\n"
-            f"{loser_name} {pe('mog_lose')}\n\n"
+            f"{winner_name} {mog_winner_stamp()}\n\n"
+            f"{loser_name} {mog_loser_stamp()}\n\n"
             f"{react('mog_roast', loser=loser_name)}"
         )
 
