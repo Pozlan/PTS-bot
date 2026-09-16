@@ -87,6 +87,12 @@ class EconomyConfig:
     DART_MAX_WAGER: int = 5_000_000
     BJ_MAX_HOUSE_WAGER: int = 250_000
     SLOTS_MAX_WAGER: int = 250_000
+    # /lebron -- deliberately player-favorable (+20% EV for the player,
+    # miss 1-3 loses the wager, make 4-5 triples it). Capped low (vs
+    # DART_MAX_WAGER's 5M) specifically because it's a house-losing game
+    # on average, not a mistake -- keep this cap in place unless the
+    # payout math above changes.
+    LEBRON_MAX_WAGER: int = 500_000
 
     # /shop buyback -- selling an owned gift back to the shop, not to
     # another player. Refunds 80% of price, the gift resets to unowned and
