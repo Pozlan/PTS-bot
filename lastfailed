@@ -1,0 +1,4 @@
+{
+  "tests/test_robbery.py::test_rob_cooldown_survives_fresh_session": true,
+  "tests/test_robbery.py::test_steal_amount_is_flat_20_percent_of_target_balance": true
+}
