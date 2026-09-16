@@ -103,8 +103,8 @@ async def on_mog_accept(callback: CallbackQuery):
             winner_name, loser_name = info["acceptor_name"], info["creator_name"]
         text = (
             f"{header}\n\n"
-            f"{winner_name} {mog_winner_stamp()}\n\n"
-            f"{loser_name} {mog_loser_stamp()}\n\n"
+            f"{winner_name} is {mog_winner_stamp()}\n\n"
+            f"{loser_name} got {mog_loser_stamp()}\n\n"
             f"{react('mog_roast', loser=loser_name)}"
         )
 
