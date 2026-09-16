@@ -86,6 +86,19 @@ POOLS: dict[str, list[str]] = {
     "jackpot": ["🎰 <b>JACKPOT</b>\nthe house just got robbed.", "🎰 <b>777</b>\nWHAT"],
     "blackjack": [f"{pe('pog')} <b>BLACKJACK</b>\nyeah, that's disgusting.", f"{pe('pog')} natural 21. clean."],
     "bust": [f"{pe('ko')} <b>BUST</b>\n{{over}} points over.", f"{pe('ko')} too greedy. busted."],
+
+    # --- /mog ---
+    "mog_roast": [
+        "{loser} got mogged into the dirt. cabinet's basically empty, ratio's basically nonexistent.",
+        "{loser} showed up with nothing and left with less dignity.",
+        "{loser}'s inventory couldn't buy a participation trophy.",
+        "someone check on {loser}, he just got humbled in front of everyone.",
+        "{loser} really pressed accept with that cabinet. brave. wrong, but brave.",
+    ],
+    "mog_draw": [
+        "dead even. nobody's mogging anybody tonight.",
+        "a draw. both cabinets equally unimpressive.",
+    ],
 }
 
 

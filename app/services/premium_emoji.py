@@ -52,6 +52,19 @@ EMOJI_IDS: dict[str, tuple[str, str]] = {
     "bolt": ("5893450623449305489", "⚡"),
     "logo": ("5852612609815093598", "✨"),  # PTS mark, used in the DM /start intro
 
+    # /mog -- stat-flex duel. "mog_win"/"mog_lose" are the green/red
+    # stamps that go next to the winner/loser name (self-explanatory on
+    # their own, no extra label text needed). "mog_flair_N" are a pool of
+    # 4 header decorations picked randomly per result card -- see
+    # handlers/mog.py::_random_flair.
+    "mog_logo": ("5442983582882601962", "🗿"),
+    "mog_win": ("5859530337545100734", "✅"),
+    "mog_lose": ("5859632716680537204", "❌"),
+    "mog_flair_1": ("5325684684544289988", "✨"),
+    "mog_flair_2": ("5327761026353997352", "✨"),
+    "mog_flair_3": ("5327997103526389902", "✨"),
+    "mog_flair_4": ("5368493177634301681", "✨"),
+
     # /streak digit glyphs -- used by render_number() below to spell out
     # the streak count digit-by-digit instead of plain text. Keyed "d0"-
     # "d9" (not bare "0"-"9") so they can't collide with any future
