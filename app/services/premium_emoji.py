@@ -52,14 +52,12 @@ EMOJI_IDS: dict[str, tuple[str, str]] = {
     "bolt": ("5893450623449305489", "⚡"),
     "logo": ("5852612609815093598", "✨"),  # PTS mark, used in the DM /start intro
 
-    # /mog -- stat-flex duel. "mog_win"/"mog_lose" are the green/red
-    # stamps that go next to the winner/loser name (self-explanatory on
-    # their own, no extra label text needed). "mog_flair_N" are a pool of
-    # 4 header decorations picked randomly per result card -- see
-    # handlers/mog.py::_random_flair.
+    # /mog -- stat-flex duel. "mog_flair_N" are a pool of 4 header
+    # decorations picked randomly per result card -- see
+    # handlers/mog.py::_random_flair. Winner/loser stamps aren't single
+    # emoji -- see MOG_WINNER_STAMP_IDS/MOG_LOSER_STAMP_IDS + the
+    # mog_winner_stamp()/mog_loser_stamp() helpers below.
     "mog_logo": ("5442983582882601962", "🗿"),
-    "mog_win": ("5859530337545100734", "✅"),
-    "mog_lose": ("5859632716680537204", "❌"),
     "mog_flair_1": ("5325684684544289988", "✨"),
     "mog_flair_2": ("5327761026353997352", "✨"),
     "mog_flair_3": ("5327997103526389902", "✨"),
@@ -92,11 +90,38 @@ def pe(key: str) -> str:
     return f'<tg-emoji emoji-id="{custom_id}">{fallback}</tg-emoji>'
 
 
+# /mog winner/loser stamps -- NOT a random pick like mog_flair_N. Every
+# result card shows ALL of these, in this exact order, concatenated
+# directly after the name with no separator -- a fixed multi-emoji combo,
+# not a single badge.
+MOG_WINNER_STAMP_IDS = [
+    "5859525321023299979",
+    "5859592399822528776",
+    "5859607135855321871",
+    "5859191138207932501",
+]
+MOG_LOSER_STAMP_IDS = [
+    "5859684587000569365",
+    "5861907198216511921",
+    "5859511602897757221",
+]
+
+
 def raw_tag(emoji_id: str, fallback: str = "🎁") -> str:
     """Same as pe(), but for an emoji ID that isn't in the semantic
     EMOJI_IDS registry above -- used for /shop gifts, where the IDs are
     arbitrary catalog data (from /addgift) rather than named UI icons."""
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+
+
+def mog_winner_stamp() -> str:
+    """All 4 winner stamps, in the fixed order above, no gaps between them."""
+    return "".join(raw_tag(eid, "✅") for eid in MOG_WINNER_STAMP_IDS)
+
+
+def mog_loser_stamp() -> str:
+    """All 3 loser stamps, in the fixed order above, no gaps between them."""
+    return "".join(raw_tag(eid, "❌") for eid in MOG_LOSER_STAMP_IDS)
 
 
 def render_number(n: int) -> str:
