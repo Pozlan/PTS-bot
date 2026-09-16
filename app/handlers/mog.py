@@ -1,167 +1,112 @@
 """
-Spec section 37: game logic emits structured events, this module turns
-them into varied, contextual text. Nothing in games/ or handlers/ should
-contain a hardcoded personality string -- if you're tempted to write
-f"you won {amount} pts" inline, it belongs in POOLS instead.
+/mog -- open flex duel, scored off gift-cabinet value (see services/mog.py).
+No wager: rides the existing Challenge system purely for its accept/expire
+plumbing (wager=0), never touches balance beyond that. Deliberately its
+own callback prefix ("mogacc:") instead of the shared "acc:" handler in
+pvp_common.py, since that one dispatches by challenge.game and doesn't
+know about "mog" -- keeping this isolated means zero risk to the existing
+rps/coin/dice accept flow.
 
-Usage:
-    from app.services.response_engine import react
-    line = react("normal_win", amount=50_000)
-
-`react` never returns the same string twice in a row for the same
-category (best-effort, process-local -- fine for a single bot instance).
-
-POOLS is built with pe(...) calls (see premium_emoji.py) instead of
-plain unicode emoji wherever a custom emoji ID has been provided for
-that category. This only renders correctly because the bot runs in HTML
-parse_mode -- see app/bot.py.
+/cancel (pvp_common.py) already works on any pending challenge regardless
+of game, so a host bailing on an unaccepted /mog challenge is covered for
+free. Same for the background expiry sweep in bot.py.
 """
 import random
-from app.services.economy import format_amount, classify_amount
-from app.services.premium_emoji import pe
 
-_last_used: dict[str, str] = {}
+from aiogram import Router, F
+from aiogram.filters import Command
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
-POOLS: dict[str, list[str]] = {
-    # --- win/loss by size ---
-    "small_win": [f"{pe('up')} easy money.", f"{pe('up')} small but it counts.", f"{pe('up')} free pts.", f"{pe('up')} nice, take it."],
-    "normal_win": [f"{pe('gg')} clean.", f"{pe('gg')} solid win.", f"{pe('gg')} clean work.", f"{pe('gg')} that's a W."],
-    "big_win": [f"{pe('crit')} {{amount}} secured. disgusting.", f"{pe('crit')} that's a real payday.", f"{pe('crit')} big money move.", f"{pe('crit')} he's eating good."],
-    "massive_win": [f"{pe('boom')} <b>WHAT.</b>", f"{pe('boom')} screenshot this immediately.", f"{pe('boom')} someone check the logs.", f"{pe('boom')} that's insane."],
+from app.database.db import get_session
+from app.services.challenge import ChallengeError, accept_challenge, create_challenge
+from app.services.economy import get_or_create_group, get_or_create_state, get_or_create_user
+from app.services.game_common import finalize_pvp
+from app.services.mog import score
+from app.services.premium_emoji import mog_loser_stamp, mog_winner_stamp, pe
+from app.services.response_engine import react
+from app.utils.html_esc import esc
 
-    "small_loss": [f"{pe('lol')} barely felt that.", f"{pe('lol')} rounding error.", f"{pe('lol')} meh, next one."],
-    "normal_loss": [f"{pe('rip')} that's rough.", f"{pe('rip')} ouch.", f"{pe('rip')} unlucky.", f"{pe('rip')} it happens."],
-    "big_loss": [f"{pe('rage')} that hurt to watch.", f"{pe('rage')} {{amount}} gone in one click.", f"{pe('rage')} painful.", f"{pe('rage')} brutal."],
-    "massive_loss": [f"{pe('ko')} bro just disappeared.", f"{pe('ko')} {{amount}} gone.", f"{pe('ko')} someone check on him.", f"{pe('ko')} that's a career-ender."],
+router = Router()
+router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
-    # --- streaks ---
-    "winning_streak": [
-        f"{pe('buff')} {{streak}} wins straight. somebody stop him.",
-        f"{pe('buff')} {{name}} is on a <b>{{streak}} win streak</b>. someone needs to stop this guy.",
-        f"{pe('buff')} {{streak}} in a row now. this is getting unfair.",
-    ],
-    "losing_streak": [
-        f"{pe('bg')} {{losses}}W / {{wins}}L... this isn't your game.",
-        f"{pe('bg')} {{wins}}W / {{losses}}L. maybe try something else.",
-        f"{pe('bg')} another one. rough stretch.",
-    ],
-    "streak_ended": [
-        f"{pe('wtf')} <b>THE STREAK IS OVER</b>. {{streak}} straight wins. {{opponent}} finally did it.",
-        f"{pe('wtf')} the run ends here. {{streak}} wins, gone.",
-    ],
-    "comeback": [
-        f"{pe('res')} was down a few games ago btw.",
-        f"{pe('res')} comeback of the century.",
-        f"{pe('res')} he actually survived.",
-    ],
-
-    # --- closeness ---
-    "close_win": [f"{pe('ns')} won by <b>1 point</b>", f"{pe('ns')} that was way too close.", f"{pe('ns')} barely made it."],
-    "close_loss": [f"{pe('sad')} so close. painful.", f"{pe('sad')} right at the edge. brutal."],
-    "draw": ["draw. wagers returned.", "dead even.", "nobody wins this one."],
-
-    # --- wager size framing (shown before the game resolves) ---
-    "huge_wager": [f"{pe('hype')} {{amount}}. you really wanna do this?", f"{pe('hype')} that's a big number to risk.", f"{pe('hype')} bold. respect it."],
-    "tiny_wager": [f"{pe('noob')} {{amount}}? be serious.", f"{pe('noob')} that's barely a wager.", f"{pe('noob')} why even bother, lol."],
-
-    # --- robbery ---
-    "rob_success": [
-        # no premium ID provided for this one yet -- send /emojiid on a
-        # "hack"-style icon if you want to add it, plain 🥷 until then
-        "🥷 <b>ROBBED</b>\n{robber} stole <b>{amount}</b> from {target}.",
-        "🥷 clean hit. {amount} gone from {target}.",
-    ],
-    "rob_failure": [
-        f"{pe('ban')} <b>ROBBERY FAILED</b>\n{{target}} saw you coming. nothing gained.",
-        f"{pe('ban')} caught red-handed. no pts lost, but no pts gained either.",
-    ],
-    "robbed": [f"{pe('hit')} you just got hit. {{amount}} gone.", f"{pe('hit')} someone got to you first."],
-    "protection": [f"{pe('save')} <b>ROBBERY BLOCKED</b>\n{{target}} is protected. find someone else."],
-
-    # --- house games ---
-    "house_win": [f"{pe('ez')} House just got cooked.", f"{pe('ez')} the house didn't see that coming.", f"{pe('ez')} took it clean off the house."],
-    "house_loss": ["the house wins this one.", "house takes it.", "better luck next time."],
-
-    # --- special ---
-    "jackpot": ["🎰 <b>JACKPOT</b>\nthe house just got robbed.", "🎰 <b>777</b>\nWHAT"],
-    "blackjack": [f"{pe('pog')} <b>BLACKJACK</b>\nyeah, that's disgusting.", f"{pe('pog')} natural 21. clean."],
-    "bust": [f"{pe('ko')} <b>BUST</b>\n{{over}} points over.", f"{pe('ko')} too greedy. busted."],
-
-    # --- /mog ---
-    "mog_roast": [
-        "{loser} got mogged into the dirt. cabinet's basically empty, ratio's basically nonexistent.",
-        "{loser} showed up with nothing and left with less dignity.",
-        "{loser}'s inventory couldn't buy a participation trophy.",
-        "someone check on {loser}, he just got humbled in front of everyone.",
-        "{loser} really pressed accept with that cabinet. brave. wrong, but brave.",
-        "{loser} got mbappe's special in his wallet. lowkey embarrassing.",
-        "{loser}'s cabinet is straight up 404 coded, nothing found.",
-        "{loser} mogged? nah he got yeeted clean off the leaderboard.",
-        "{loser} really thought he had rizz with that inventory. mid at best.",
-        "{loser}'s cabinet screams 6-7, no direction, no value.",
-        "{loser} chronically online but broke in-game too. couldn't make it up.",
-        "{loser} tried aura farming with a cabinet full of nothing. zero yield.",
-        "{loser} just got exposed, no cap.",
-        "{loser} isn't the main character today, he's the npc that got clapped.",
-        "{loser}'s wallet got brainrot, all filler no killer.",
-        "someone tell {loser} glazing himself won't fix that empty cabinet.",
-        "{loser} got skibidi'd straight into the dirt, actual L.",
-        "{loser}'s gifts are beige flag energy, boring and worthless.",
-        "{loser} pulled up with a canon event of a cabinet, straight tragedy.",
-        "{loser} just learned the hard way, that cabinet was never bussin'.",
-        "bet {loser} didn't expect to get this exposed today.",
-        "{loser} got cooked, no rizz, no gifts, no chance.",
-        "{loser}'s cabinet is emptier than his sigma grindset.",
-        "{loser} got dragged so hard even mbappe felt that one.",
-        "{loser} really said trust the process with a cabinet full of low tier junk.",
-    ],
-    "mog_draw": [
-        "dead even. nobody's mogging anybody tonight.",
-        "a draw. both cabinets equally unimpressive.",
-    ],
-}
+FLAIR_KEYS = ["mog_flair_1", "mog_flair_2", "mog_flair_3", "mog_flair_4"]
+_last_flair: str | None = None
 
 
-def _select(category: str, pool: list[str]) -> str:
-    if len(pool) == 1:
-        return pool[0]
-    choices = [c for c in pool if c != _last_used.get(category)]
-    choice = random.choice(choices or pool)
-    _last_used[category] = choice
-    return choice
+def _random_flair() -> str:
+    """Same one-at-a-time / no-immediate-repeat idea as response_engine's
+    POOLS, just for the header's custom emoji instead of a text line."""
+    global _last_flair
+    choices = [k for k in FLAIR_KEYS if k != _last_flair]
+    key = random.choice(choices)
+    _last_flair = key
+    return pe(key)
 
 
-def react(category: str, **context) -> str:
-    pool = POOLS.get(category)
-    if not pool:
-        return ""
-    template = _select(category, pool)
-    ctx = dict(context)
-    if "amount" in ctx and isinstance(ctx["amount"], int):
-        ctx["amount"] = format_amount(ctx["amount"])
-    try:
-        return template.format(**ctx)
-    except KeyError:
-        # a template needed a var the caller didn't pass -- fail soft, not loud
-        return template
+def _mog_keyboard(challenge_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text="Accept", callback_data=f"mogacc:{challenge_id}"),
+    ]])
 
 
-def win_category(amount: int) -> str:
-    return {"small": "small_win", "normal": "normal_win", "big": "big_win", "massive": "massive_win"}[
-        classify_amount(amount)
-    ]
+@router.message(Command("mog"))
+async def mog_cmd(message: Message):
+    user = message.from_user
+    async with get_session() as session:
+        await get_or_create_user(session, user.id, user.full_name, user.username)
+        await get_or_create_group(session, message.chat.id, message.chat.title or "")
+        await get_or_create_state(session, user.id, message.chat.id)
+        challenge = await create_challenge(session, message.chat.id, "mog", user.id, wager=0)
+        challenge_id = challenge.id
+
+    text = (
+        f"{pe('mog_logo')} <b>MOG CHECK</b>\n\n"
+        f"{esc(user.full_name)} wants to mog someone. who's got the balls?"
+    )
+    await message.answer(text, reply_markup=_mog_keyboard(challenge_id))
 
 
-def loss_category(amount: int) -> str:
-    return {"small": "small_loss", "normal": "normal_loss", "big": "big_loss", "massive": "massive_loss"}[
-        classify_amount(amount)
-    ]
+@router.callback_query(F.data.startswith("mogacc:"))
+async def on_mog_accept(callback: CallbackQuery):
+    challenge_id = int(callback.data.split(":", 1)[1])
+    acceptor = callback.from_user
 
+    async with get_session() as session:
+        await get_or_create_user(session, acceptor.id, acceptor.full_name, acceptor.username)
+        await get_or_create_group(session, callback.message.chat.id, callback.message.chat.title or "")
+        try:
+            challenge = await accept_challenge(session, challenge_id, acceptor.id)
+        except ChallengeError as e:
+            await callback.answer(str(e), show_alert=True)
+            return
 
-def wager_framing(amount: int, house_cap: int | None) -> str | None:
-    """Returns a pre-game reaction line if the wager is notably large or tiny, else None."""
-    if amount <= 200:
-        return react("tiny_wager", amount=amount)
-    if amount >= 5_000_000 or (house_cap and amount >= house_cap):
-        return react("huge_wager", amount=amount)
-    return None
+        creator_score = await score(session, challenge.creator_id)
+        acceptor_score = await score(session, challenge.acceptor_id)
+        if creator_score > acceptor_score:
+            winner_id = challenge.creator_id
+        elif acceptor_score > creator_score:
+            winner_id = challenge.acceptor_id
+        else:
+            winner_id = None  # draw
+
+        info = await finalize_pvp(session, challenge, winner_id)
+
+    flair = _random_flair()
+    header = f"{pe('mog_logo')} <b>MOG RESULTS</b> {flair}"
+
+    if winner_id is None:
+        text = f"{header}\n\n{react('mog_draw')}"
+    else:
+        if winner_id == info["creator_id"]:
+            winner_name, loser_name = info["creator_name"], info["acceptor_name"]
+        else:
+            winner_name, loser_name = info["acceptor_name"], info["creator_name"]
+        text = (
+            f"{header}\n\n"
+            f"{winner_name} is {mog_winner_stamp()}\n\n"
+            f"{loser_name} got {mog_loser_stamp()}\n\n"
+            f"{react('mog_roast', loser=loser_name)}"
+        )
+
+    await callback.message.edit_text(text)
+    await callback.answer()
