@@ -45,7 +45,7 @@ def _random_flair() -> str:
 
 def _mog_keyboard(challenge_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Accept", callback_data=f"mogacc:{challenge_id}"),
+        InlineKeyboardButton(text="Accept", callback_data=f"mogacc:{challenge_id}", style="success"),
     ]])
 
 
