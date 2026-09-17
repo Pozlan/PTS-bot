@@ -66,7 +66,7 @@ async def tip(message: Message):
 @router.message(Command("protect"))
 async def protect(message: Message):
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="Open door · 5m", callback_data="door:open")
+        InlineKeyboardButton(text="Open door · 5m", callback_data="door:open", style="success")
     ]])
 
     async with get_session() as session:
