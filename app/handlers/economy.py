@@ -45,7 +45,7 @@ async def farm(message: Message):
 
 
 def _work_keyboard(job_names: list[str], owner_id: int) -> InlineKeyboardMarkup:
-   rows = [[InlineKeyboardButton(text=job.title(), callback_data=f"work:{owner_id}:{job}", style="success")] for job in job_names]
+       rows = [[InlineKeyboardButton(text=job.title(), callback_data=f"work:{owner_id}:{job}", style="success")] for job in job_names]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
