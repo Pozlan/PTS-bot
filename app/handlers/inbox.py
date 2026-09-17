@@ -50,7 +50,7 @@ async def start_dm(message: Message, bot: Bot):
     # call, so this isn't a fresh API hit on every /start.
     me = await bot.get_me()
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="➕ Add to Group", url=f"https://t.me/{me.username}?startgroup=true")
+        InlineKeyboardButton(text="➕ Add to Group", url=f"https://t.me/{me.username}?startgroup=true", style="success")
     ]])
     if BANNER_PATH.exists():
         await message.answer_photo(FSInputFile(BANNER_PATH), caption=caption, reply_markup=kb)
