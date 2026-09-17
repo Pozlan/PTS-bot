@@ -22,9 +22,9 @@ router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 def _keyboard(run_id: int, card: int) -> InlineKeyboardMarkup:
     row = []
     if engine.can_guess_higher(card):
-        row.append(InlineKeyboardButton(text="🟩 Higher", callback_data=f"hl:{run_id}:higher"))
+        row.append(InlineKeyboardButton(text="Higher", callback_data=f"hl:{run_id}:higher", style="primary"))
     if engine.can_guess_lower(card):
-        row.append(InlineKeyboardButton(text="🟥 Lower", callback_data=f"hl:{run_id}:lower"))
+        row.append(InlineKeyboardButton(text="Lower", callback_data=f"hl:{run_id}:lower", style="danger"))
     return InlineKeyboardMarkup(inline_keyboard=[row])
 
 
@@ -113,5 +113,3 @@ async def on_highlow_action(callback: CallbackQuery):
 
     await callback.message.edit_text(text)
     await callback.answer()
-
-"<tg-emoji emoji-id=\"5404556879852484450\">🃏</tg-emoji> Higher / Lower\n\n"
