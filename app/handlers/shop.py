@@ -48,11 +48,11 @@ def _category_kb(categories: list[dict]) -> InlineKeyboardMarkup:
     # message text right above these buttons (see _categories_view), so
     # repeating the full name on the button itself was just dead width.
     buttons = [
-        InlineKeyboardButton(text=str(i), callback_data=f"shop:cat:{c['category']}")
+        InlineKeyboardButton(text=str(i), callback_data=f"shop:cat:{c['category']}", style="success")
         for i, c in enumerate(categories, start=1)
     ]
     rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
-    rows.append([InlineKeyboardButton(text="cancel", callback_data="shop:cancel")])
+    rows.append([InlineKeyboardButton(text="cancel", callback_data="shop:cancel", style="success")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -61,25 +61,28 @@ def _tier_kb(category: str, tiers: list[dict]) -> InlineKeyboardMarkup:
     # in the message text above (see _tiers_view), same reasoning as
     # category buttons. All 3 tiers fit one row instead of stacking tall.
     buttons = [
-        InlineKeyboardButton(text=TIER_LABEL[t['tier']], callback_data=f"shop:tier:{category}:{t['tier']}")
+        InlineKeyboardButton(text=TIER_LABEL[t['tier']], callback_data=f"shop:tier:{category}:{t['tier']}", style="success")
         for t in tiers
     ]
     rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
-    rows.append([InlineKeyboardButton(text="« back", callback_data="shop:back:categories")])
+    rows.append([InlineKeyboardButton(text="« back", callback_data="shop:back:categories", style="success")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _item_kb(unsold: list, category: str, tier: str | None) -> InlineKeyboardMarkup:
-    """unsold must already be filtered to unowned gifts -- see _show_items."""
+    """unsold must already be filtered to unowned gifts -- see _show_items.
+    Numbered buttons here are the actual buy action -- tapping one purchases
+    immediately, no separate confirm step -- so these get the "buy" blue,
+    not the green everything-else uses."""
     buttons = [
-        InlineKeyboardButton(text=str(i), callback_data=f"shop:item:{g.id}")
+        InlineKeyboardButton(text=str(i), callback_data=f"shop:item:{g.id}", style="primary")
         for i, g in enumerate(unsold, start=1)
     ]
     rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
     # Tiered category -> back goes to its tier list. Limited Edition (no
     # tier step at all) -> back goes straight to categories.
     back_cb = f"shop:back:tier:{category}" if tier else "shop:back:categories"
-    rows.append([InlineKeyboardButton(text="« back", callback_data=back_cb)])
+    rows.append([InlineKeyboardButton(text="« back", callback_data=back_cb, style="success")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -179,7 +182,7 @@ async def _show_items(callback: CallbackQuery, category: str, tier: str | None):
 
     if not unsold:
         back_cb = f"shop:back:tier:{category}" if tier else "shop:back:categories"
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« back", callback_data=back_cb)]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« back", callback_data=back_cb, style="success")]])
         await callback.message.edit_text(f"<b>{label}</b>\n\nsold out. check back later.", reply_markup=kb)
         return
 
@@ -237,19 +240,19 @@ def _sellback_view(owned: list, page: int) -> tuple[str, InlineKeyboardMarkup]:
         lines.append(f"page {page + 1}/{total_pages}")
 
     buttons = [
-        InlineKeyboardButton(text=str(i), callback_data=f"sb:pick:{g.id}")
+        InlineKeyboardButton(text=str(i), callback_data=f"sb:pick:{g.id}", style="success")
         for i, g in enumerate(page_items, start=start + 1)
     ]
     rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
 
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="« prev", callback_data=f"sb:page:{page - 1}"))
+        nav.append(InlineKeyboardButton(text="« prev", callback_data=f"sb:page:{page - 1}", style="success"))
     if page < total_pages - 1:
-        nav.append(InlineKeyboardButton(text="next »", callback_data=f"sb:page:{page + 1}"))
+        nav.append(InlineKeyboardButton(text="next »", callback_data=f"sb:page:{page + 1}", style="success"))
     if nav:
         rows.append(nav)
-    rows.append([InlineKeyboardButton(text="cancel", callback_data="sb:cancel")])
+    rows.append([InlineKeyboardButton(text="cancel", callback_data="sb:cancel", style="success")])
 
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -296,8 +299,8 @@ async def on_sellback_pick(callback: CallbackQuery):
         refund = int(gift.price * ECONOMY.GIFT_REFUND_RATE)
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="yes, sell it", callback_data=f"sb:confirm:{gift_id}"),
-        InlineKeyboardButton(text="cancel", callback_data="sb:cancel"),
+        InlineKeyboardButton(text="yes, sell it", callback_data=f"sb:confirm:{gift_id}", style="danger"),
+        InlineKeyboardButton(text="cancel", callback_data="sb:cancel", style="success"),
     ]])
     await callback.message.edit_text(
         f"sell {raw_tag(gift.emoji_id)} back for {format_amount(refund)}? this can't be undone.",
@@ -347,19 +350,19 @@ def _equip_view(owned: list, page: int) -> tuple[str, InlineKeyboardMarkup]:
         lines.append(f"page {page + 1}/{total_pages}")
 
     buttons = [
-        InlineKeyboardButton(text=str(i), callback_data=f"equip:{g.id}")
+        InlineKeyboardButton(text=str(i), callback_data=f"equip:{g.id}", style="success")
         for i, g in enumerate(page_items, start=start + 1)
     ]
     rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
 
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="« prev", callback_data=f"equip:page:{page - 1}"))
+        nav.append(InlineKeyboardButton(text="« prev", callback_data=f"equip:page:{page - 1}", style="success"))
     if page < total_pages - 1:
-        nav.append(InlineKeyboardButton(text="next »", callback_data=f"equip:page:{page + 1}"))
+        nav.append(InlineKeyboardButton(text="next »", callback_data=f"equip:page:{page + 1}", style="success"))
     if nav:
         rows.append(nav)
-    rows.append([InlineKeyboardButton(text="remove badge", callback_data="equip:none")])
+    rows.append([InlineKeyboardButton(text="remove badge", callback_data="equip:none", style="success")])
 
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -436,10 +439,10 @@ async def addgift_cmd(message: Message):
 
     _pending.pop(message.from_user.id, None)
     rows = [
-        [InlineKeyboardButton(text=c["category"], callback_data=f"ag:cat:{c['category']}")]
+        [InlineKeyboardButton(text=c["category"], callback_data=f"ag:cat:{c['category']}", style="success")]
         for c in categories
     ]
-    rows.append([InlineKeyboardButton(text="➕ new category", callback_data="ag:newcat")])
+    rows.append([InlineKeyboardButton(text="➕ new category", callback_data="ag:newcat", style="success")])
     await message.reply("add stock to which category?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
 
@@ -482,10 +485,10 @@ async def on_addgift_category(callback: CallbackQuery):
 
     if has_tiers:
         rows = [
-            [InlineKeyboardButton(text=f"{TIER_LABEL[t['tier']]} ({t['available']}/{t['total']})", callback_data=f"ag:tier:{t['tier']}")]
+            [InlineKeyboardButton(text=f"{TIER_LABEL[t['tier']]} ({t['available']}/{t['total']})", callback_data=f"ag:tier:{t['tier']}", style="success")]
             for t in tiers
         ]
-        rows.append([InlineKeyboardButton(text="➕ new tier", callback_data="ag:newtier")])
+        rows.append([InlineKeyboardButton(text="➕ new tier", callback_data="ag:newtier", style="success")])
         await callback.message.edit_text(f"<b>{esc(category)}</b> -- which tier?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
     else:
         _pending[callback.from_user.id]["tier"] = None
@@ -623,10 +626,10 @@ async def setprice_cmd(message: Message):
 
     _pending_price.pop(message.from_user.id, None)
     rows = [
-        [InlineKeyboardButton(text=c["category"], callback_data=f"sp:cat:{c['category']}")]
+        [InlineKeyboardButton(text=c["category"], callback_data=f"sp:cat:{c['category']}", style="success")]
         for c in categories
     ]
-    rows.append([InlineKeyboardButton(text="cancel", callback_data="sp:cancel")])
+    rows.append([InlineKeyboardButton(text="cancel", callback_data="sp:cancel", style="success")])
     await message.reply("change the price of which category?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
 
@@ -662,10 +665,11 @@ async def on_setprice_category(callback: CallbackQuery):
                 # rendering as an emoji.
                 text=f"{TIER_LABEL[t['tier']]} (currently {t['price']:,})",
                 callback_data=f"sp:tier:{category}:{t['tier']}",
+                style="success",
             )]
             for t in tiers
         ]
-        rows.append([InlineKeyboardButton(text="cancel", callback_data="sp:cancel")])
+        rows.append([InlineKeyboardButton(text="cancel", callback_data="sp:cancel", style="success")])
         await callback.message.edit_text(f"<b>{esc(category)}</b> -- which tier?", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
     else:
         current = items[0].price if items else 0
@@ -718,8 +722,8 @@ async def on_setprice_text(message: Message):
     pending["new_price"] = new_price
 
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="yes, update it", callback_data="sp:confirm"),
-        InlineKeyboardButton(text="cancel", callback_data="sp:cancel"),
+        InlineKeyboardButton(text="yes, update it", callback_data="sp:confirm", style="success"),
+        InlineKeyboardButton(text="cancel", callback_data="sp:cancel", style="success"),
     ]])
 
     if unsold:
@@ -815,10 +819,10 @@ def _stock_bar(available: int, total: int, width: int = 5) -> str:
 
 def _rmgift_category_kb(categories: list[dict]) -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text=f"{i}. {c['category']}", callback_data=f"rmgift:cat:{c['category']}")]
+        [InlineKeyboardButton(text=f"{i}. {c['category']}", callback_data=f"rmgift:cat:{c['category']}", style="success")]
         for i, c in enumerate(categories, start=1)
     ]
-    rows.append([InlineKeyboardButton(text="cancel", callback_data="rmgift:cancel")])
+    rows.append([InlineKeyboardButton(text="cancel", callback_data="rmgift:cancel", style="success")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -836,10 +840,11 @@ def _rmgift_tier_kb(category: str, tiers: list[dict]) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(
             text=f"{TIER_LABEL[t['tier']]} · {t['available']} unsold",
             callback_data=f"rmgift:tier:{category}:{t['tier']}",
+            style="success",
         )]
         for t in tiers
     ]
-    rows.append([InlineKeyboardButton(text="« back", callback_data="rmgift:back:categories")])
+    rows.append([InlineKeyboardButton(text="« back", callback_data="rmgift:back:categories", style="success")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -861,7 +866,7 @@ async def _rmgift_show_items(callback: CallbackQuery, category: str, tier: str |
 
     if not unsold:
         text = f"<b>{label}</b>\n\nnothing unsold here to remove."
-        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« back", callback_data=back_cb)]])
+        kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="« back", callback_data=back_cb, style="success")]])
         await callback.message.edit_text(text, reply_markup=kb)
         return
 
@@ -871,9 +876,9 @@ async def _rmgift_show_items(callback: CallbackQuery, category: str, tier: str |
     lines.append("")
     lines.append("tap one to delete it.")
 
-    buttons = [InlineKeyboardButton(text=str(i), callback_data=f"rmgift:item:{g.id}") for i, g in enumerate(unsold, start=1)]
+    buttons = [InlineKeyboardButton(text=str(i), callback_data=f"rmgift:item:{g.id}", style="success") for i, g in enumerate(unsold, start=1)]
     rows = [buttons[i:i + 5] for i in range(0, len(buttons), 5)]
-    rows.append([InlineKeyboardButton(text="« back", callback_data=back_cb)])
+    rows.append([InlineKeyboardButton(text="« back", callback_data=back_cb, style="success")])
     await callback.message.edit_text("\n".join(lines), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
 
@@ -983,8 +988,8 @@ async def on_rmgift_item(callback: CallbackQuery):
         f"from <b>{esc(gift.category)}</b>?\n\nthis can't be undone."
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="yes, delete it", callback_data=f"rmgift:confirm:{gift_id}"),
-        InlineKeyboardButton(text="cancel", callback_data="rmgift:cancel"),
+        InlineKeyboardButton(text="yes, delete it", callback_data=f"rmgift:confirm:{gift_id}", style="success"),
+        InlineKeyboardButton(text="cancel", callback_data="rmgift:cancel", style="success"),
     ]])
     await callback.message.edit_text(text, reply_markup=kb)
     await callback.answer()
