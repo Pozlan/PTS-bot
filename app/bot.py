@@ -18,6 +18,20 @@ logger = logging.getLogger("ptsbot")
 
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher()
+
+    @dp.error()
+    async def on_error(event, exception=None):
+        exc = exception or getattr(event, "exception", None)
+        logger.exception("unhandled error in update", exc_info=exc)
+        update = getattr(event, "update", None)
+        message = getattr(update, "message", None) if update else None
+        if message is not None:
+            try:
+                await message.reply("something broke on my end, try again in a sec.")
+            except Exception:
+                pass
+        return True
+
     dp.include_router(wallet.router)
     dp.include_router(economy.router)
     dp.include_router(streak.router)
@@ -92,3 +106,4 @@ async def run() -> None:
     bot.sweep_task = asyncio.create_task(_challenge_sweep_loop())
     logger.info("ptsbot starting polling")
     await dp.start_polling(bot)
+    
