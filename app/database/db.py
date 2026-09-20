@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.config import settings
 from app.database.models import Base
 
-engine = create_async_engine(settings.database_url, echo=False)
+engine = create_async_engine(settings.database_url, echo=False, pool_size=3, max_overflow=2)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 # (table, column, SQL type) -- columns added to a model AFTER the bot was
@@ -70,3 +70,4 @@ async def get_session():
         except Exception:
             await session.rollback()
             raise
+            
