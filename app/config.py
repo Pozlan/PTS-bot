@@ -103,7 +103,7 @@ class EconomyConfig:
 
     # PvP challenges
     CHALLENGE_EXPIRATION_S: int = 3 * 60
-    CHALLENGE_SWEEP_INTERVAL_S: int = 30  # how often the background task checks for expired challenges to refund
+    CHALLENGE_SWEEP_INTERVAL_S: int = 900  # how often the background task checks for expired challenges to refund
 
     # Robbery
     # No per-robber cooldown -- removed. Every throttle now lives on the
