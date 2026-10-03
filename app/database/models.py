@@ -210,3 +210,42 @@ class GameHistory(Base):
     wager: Mapped[int] = mapped_column(BigInteger)
     result: Mapped[str] = mapped_column(String(8))  # "win" | "loss" | "draw"
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
+
+
+class WordRound(Base):
+    """One /word round in one chat. Only one 'active' round per chat at a time."""
+    __tablename__ = "word_rounds"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    word: Mapped[str] = mapped_column(String(4))
+    guesses: Mapped[str] = mapped_column(String(256), default="")  # space-separated, in order
+    status: Mapped[str] = mapped_column(String(8), default="active")  # active | solved | failed
+    solver_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    started_by: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
+
+
+class WordContest(Base):
+    """Admin-started timed contest. Solves made before ends_at count for it."""
+    __tablename__ = "word_contests"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    started_by: Mapped[int] = mapped_column(BigInteger)
+    ends_at: Mapped[datetime] = mapped_column(DateTime())
+    status: Mapped[str] = mapped_column(String(8), default="active")  # active | ended
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
+
+
+class WordSolve(Base):
+    """One row per solved word = 1 point. contest_id is NULL for solves made
+    outside a contest (those only count for the all-time board)."""
+    __tablename__ = "word_solves"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    group_id: Mapped[int] = mapped_column(BigInteger, index=True)
+    user_id: Mapped[int] = mapped_column(BigInteger)
+    round_id: Mapped[int] = mapped_column(Integer)
+    contest_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
