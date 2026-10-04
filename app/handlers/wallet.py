@@ -55,6 +55,7 @@ async def help_cmd(message: Message):
         "<code>/dart &lt;amount&gt;</code> - throw a dart\n"
         "<code>/cancel</code> - refund your own unaccepted game\n\n"
         "<code>/word</code> - 4-letter word game, whole group guesses\n"
+        "<code>/giveup</code> - end a word round (after 5 guesses)\n"
         "<code>/cotop</code> - live word contest board\n"
         "<code>/wordtop</code> - all-time word board\n\n"
         "<code>/tip &lt;amount&gt;</code> - reply to send pts\n"
