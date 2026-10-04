@@ -7,10 +7,24 @@ from datetime import timedelta
 from sqlalchemy import asc, desc, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import User, WordContest, WordRound, WordSolve
+from app.database.models import Gift, PlayerState, User, WordContest, WordRound, WordSolve
+from app.services.economy import GLOBAL_ID
+from app.services.premium_emoji import raw_tag
 from app.services.word_logic import MAX_GUESSES, score_guess
 from app.services.wordlist import ANSWERS, VALID
 from app.utils.time import utcnow
+
+
+async def badge_for(session: AsyncSession, user_id: int) -> str:
+    """The player's equipped gift badge as a ready-to-embed tag with a leading
+    space (same look as /top and /bal), or '' if they have none. Never raises
+    for a missing wallet or gift, so a badge problem can't break the game."""
+    emoji_id = (await session.execute(
+        select(Gift.emoji_id)
+        .join(PlayerState, PlayerState.equipped_gift_id == Gift.id)
+        .where(PlayerState.user_id == user_id, PlayerState.group_id == GLOBAL_ID)
+    )).scalar_one_or_none()
+    return f" {raw_tag(emoji_id)}" if emoji_id else ""
 
 
 async def get_active_round(session: AsyncSession, group_id: int) -> WordRound | None:
@@ -100,8 +114,8 @@ async def submit_guess(session: AsyncSession, rnd: WordRound, user_id: int, raw:
 
 async def leaderboard(
     session: AsyncSession, group_id: int, contest_id: int | None = None, limit: int = 10
-) -> list[tuple[str, int]]:
-    """[(display_name, points)], best first. Ties go to whoever reached the
+) -> list[tuple[str, str, int]]:
+    """[(display_name, badge_tag, points)], best first. Ties go to whoever reached the
     score first (earliest last-solve)."""
     q = (
         select(WordSolve.user_id, func.count().label("pts"), func.max(WordSolve.created_at).label("last"))
@@ -111,10 +125,10 @@ async def leaderboard(
         q = q.where(WordSolve.contest_id == contest_id)
     q = q.group_by(WordSolve.user_id).order_by(desc("pts"), asc("last")).limit(limit)
     rows = (await session.execute(q)).all()
-    out: list[tuple[str, int]] = []
+    out: list[tuple[str, str, int]] = []
     for user_id, pts, _last in rows:
         user = await session.get(User, user_id)
-        out.append((user.display_name if user else str(user_id), int(pts)))
+        out.append((user.display_name if user else str(user_id), await badge_for(session, user_id), int(pts)))
     return out
 
 
