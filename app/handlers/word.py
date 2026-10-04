@@ -42,7 +42,11 @@ router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 
 _locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)  # one at a time per chat
 GUESS_RE = re.compile(r"^[A-Za-z]{4}$")
-MEDALS = ["🥇", "🥈", "🥉"]
+MEDALS = [
+    raw_tag("5454329671002918189", "🥇"),
+    raw_tag("5454277199387464208", "🥈"),
+    raw_tag("5454129194814441654", "🥉"),
+]
 
 # custom (premium) emoji -- fallback shows for people without Premium
 POPPER = raw_tag("5193018401810822951", "🎉")   # when a word is solved
@@ -50,11 +54,11 @@ WORD_ICON = raw_tag("5467538555158943525", "🔤")  # new round
 TROPHY = raw_tag("5217822164362739968", "🏆")   # contest messages
 
 
-def _board_text(rows: list[tuple[str, int]]) -> str:
+def _board_text(rows: list[tuple[str, str, int]]) -> str:
     lines = []
-    for i, (name, pts) in enumerate(rows):
+    for i, (name, badge, pts) in enumerate(rows):
         rank = MEDALS[i] if i < 3 else f"{i + 1}."
-        lines.append(f"{rank} {esc(name)} - {pts} {'word' if pts == 1 else 'words'}")
+        lines.append(f"{rank} {esc(name)}{badge} - {pts} {'word' if pts == 1 else 'words'}")
     return "\n".join(lines)
 
 
@@ -115,9 +119,10 @@ async def giveup_cmd(message: Message):
                 return
             rnd.status = "gaveup"
             word = rnd.word
+            badge = await wg.badge_for(session, message.from_user.id)
 
     await message.reply(
-        f"🏳️ {esc(message.from_user.full_name)} gave up. the word was <b>{word.upper()}</b>.\n\n"
+        f"🏳️ {esc(message.from_user.full_name)}{badge} gave up. the word was <b>{word.upper()}</b>.\n\n"
         "no points for this one. type /word to start a new round."
     )
 
@@ -134,8 +139,9 @@ async def guess_msg(message: Message):
             user = message.from_user
             await get_or_create_user(session, user.id, user.full_name, user.username)
             res = await wg.submit_guess(session, rnd, user.id, message.text)
+            badge = await wg.badge_for(session, user.id)
 
-    name = esc(message.from_user.full_name)
+    name = esc(message.from_user.full_name) + badge
     if res.kind == "invalid":
         await message.reply(f"<b>{res.guess.upper()}</b> isn't a real word.")
     elif res.kind == "duplicate":
