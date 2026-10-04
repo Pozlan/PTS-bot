@@ -4,6 +4,7 @@
   /word          start a round (anyone). Whole chat shares ONE secret word and
                  30 guesses. Ends when someone solves it or the guesses run out.
   <4 letters>    a plain 4-letter message is a guess while a round is running.
+  /giveup        end the round and show the word (after at least 5 guesses).
   /contest 2h    admin only. Solves during the time count for the contest.
                  When time is up the bot posts the final board and pins it.
   /contest stop  admin only. Ends the running contest now.
@@ -26,7 +27,10 @@ from app.config import settings
 from app.database.db import get_session
 from app.database.models import WordContest
 from app.services.economy import get_or_create_user
-from app.services.word_logic import MAX_GUESSES, format_left, parse_duration, render_marks, score_guess
+from app.services.premium_emoji import raw_tag
+from app.services.word_logic import (
+    MAX_GUESSES, MIN_GIVEUP_GUESSES, format_left, parse_duration, render_marks, score_guess,
+)
 from app.services import wordgame as wg
 from app.utils.html_esc import esc
 from app.utils.time import utcnow
@@ -39,6 +43,11 @@ router.message.filter(F.chat.type.in_({"group", "supergroup"}))
 _locks: dict[int, asyncio.Lock] = defaultdict(asyncio.Lock)  # one at a time per chat
 GUESS_RE = re.compile(r"^[A-Za-z]{4}$")
 MEDALS = ["🥇", "🥈", "🥉"]
+
+# custom (premium) emoji -- fallback shows for people without Premium
+POPPER = raw_tag("5193018401810822951", "🎉")   # when a word is solved
+WORD_ICON = raw_tag("5467538555158943525", "🔤")  # new round
+TROPHY = raw_tag("5217822164362739968", "🏆")   # contest messages
 
 
 def _board_text(rows: list[tuple[str, int]]) -> str:
@@ -78,13 +87,39 @@ async def word_cmd(message: Message):
             left = format_left((contest.ends_at - utcnow()).total_seconds()) if contest else None
 
     text = (
-        "🔤 <b>new word round!</b>\n"
+        f"{WORD_ICON} <b>new word round!</b>\n"
         f"guess the 4-letter word. just type it in the chat. {MAX_GUESSES} guesses for the whole group.\n\n"
         "🟩 right letter, right place\n🟨 right letter, wrong place\n🟥 not in the word"
     )
     if left:
-        text += f"\n\n🏆 contest running, {left} left. solves now count."
+        text += f"\n\n{TROPHY} contest running, {left} left. solves now count."
     await message.reply(text)
+
+
+@router.message(Command("giveup"))
+async def giveup_cmd(message: Message):
+    if message.from_user is None or message.from_user.is_bot:
+        return
+    async with _locks[message.chat.id]:
+        async with get_session() as session:
+            rnd = await wg.get_active_round(session, message.chat.id)
+            if rnd is None:
+                await message.reply("no round is running. type /word to start one.")
+                return
+            used = len(wg.guesses_of(rnd))
+            if used < MIN_GIVEUP_GUESSES:
+                await message.reply(
+                    f"you can only give up after {MIN_GIVEUP_GUESSES} guesses. "
+                    f"{used} used so far, keep trying!"
+                )
+                return
+            rnd.status = "gaveup"
+            word = rnd.word
+
+    await message.reply(
+        f"🏳️ {esc(message.from_user.full_name)} gave up. the word was <b>{word.upper()}</b>.\n\n"
+        "no points for this one. type /word to start a new round."
+    )
 
 
 @router.message(F.text.regexp(GUESS_RE))
@@ -112,7 +147,7 @@ async def guess_msg(message: Message):
         elif res.kind == "solved":
             extra = " (counts for the contest too)" if res.contest_id else ""
             await message.reply(
-                f"{row}\n🎉 {name} solved it in {res.guess_no} "
+                f"{row}\n{POPPER} {name} solved it in {res.guess_no} "
                 f"{'guess' if res.guess_no == 1 else 'guesses'}! +1 point{extra}\n\n"
                 "type /word to play again."
             )
@@ -160,7 +195,7 @@ async def contest_cmd(message: Message, command: CommandObject):
         await wg.start_contest(session, message.chat.id, message.from_user.id, seconds)
 
     await message.reply(
-        f"🏆 <b>word contest started!</b> it runs for {format_left(seconds)}.\n"
+        f"{TROPHY} <b>word contest started!</b> it runs for {format_left(seconds)}.\n"
         "type /word to start a round. every word you solve is 1 point.\n"
         "see the live board with /cotop. the winners are announced when time is up."
     )
@@ -176,7 +211,7 @@ async def cotop_cmd(message: Message):
         rows = await wg.leaderboard(session, message.chat.id, contest.id)
         left = format_left((contest.ends_at - utcnow()).total_seconds())
     body = _board_text(rows) if rows else "nobody has solved a word yet."
-    await message.reply(f"🏆 <b>contest board</b> ({left} left)\n\n{body}")
+    await message.reply(f"{TROPHY} <b>contest board</b> ({left} left)\n\n{body}")
 
 
 @router.message(Command("wordtop"))
