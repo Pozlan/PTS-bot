@@ -3,6 +3,7 @@ import re
 from collections import Counter
 
 MAX_GUESSES = 30
+MIN_GIVEUP_GUESSES = 5  # /giveup only works after this many guesses
 GREEN, YELLOW, RED = "🟩", "🟨", "🟥"
 _EMOJI = {"g": GREEN, "y": YELLOW, "r": RED}
 
