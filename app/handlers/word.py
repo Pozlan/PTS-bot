@@ -21,7 +21,7 @@ from collections import defaultdict
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import Message, ReactionTypeEmoji
 
 from app.config import settings
 from app.database.db import get_session
@@ -152,6 +152,10 @@ async def guess_msg(message: Message):
             await message.reply(f"{row}\nguess {res.guess_no}/{MAX_GUESSES} by {name}")
         elif res.kind == "solved":
             extra = " (counts for the contest too)" if res.contest_id else ""
+            try:  # 🔥 on the winning guess; chats can disable reactions, so never let this break the reply
+                await message.react([ReactionTypeEmoji(emoji="🔥")])
+            except Exception:
+                logger.warning("could not react in %s", message.chat.id)
             await message.reply(
                 f"{row}\n{POPPER} {name} solved it in {res.guess_no} "
                 f"{'guess' if res.guess_no == 1 else 'guesses'}! +1 point{extra}\n\n"
@@ -270,3 +274,4 @@ async def contest_sweep_loop(bot: Bot) -> None:
         except Exception:
             logger.exception("contest sweep failed")
         await asyncio.sleep(15)
+  
