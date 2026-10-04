@@ -42,7 +42,7 @@ async def start_dm(message: Message, bot: Bot):
         "Play games, challenge your friends and earn PTS\n\n"
         "Think you've got what it takes huh?\n"
         "/help to see the games.\n\n"
-        f"{pe('play')} no group yet? join @PozzVerse to play with others."
+        f"{pe('play')} no group yet? join @etFeeds to play with others."
     )
     # startgroup=true is the magic param -- tapping this opens Telegram's
     # own group picker and adds the bot directly, no manual @username
@@ -136,7 +136,7 @@ async def help_dm(message: Message):
     await message.reply(
         f"{pe('play')} in DM you can check <code>/bal</code>, <code>/stats</code>, "
         "and <code>/gtop</code>, that's it here.\n"
-        "want to actually play? join @PozzVerse."
+        "want to actually play? join @etFeeds."
     )
 
 
@@ -146,6 +146,6 @@ async def fallback_dm(message: Message):
     Catches games/farm/tip/rob/etc. attempts specifically since those only
     exist as group-only routers and would otherwise be silently ignored."""
     await message.reply(
-        f"{pe('afk')} that one's group-only. join @PozzVerse to play.\n"
+        f"{pe('afk')} that one's group-only. join @etFeeds to play.\n"
         "in here you can check <code>/bal</code>, <code>/stats</code>, and <code>/gtop</code>."
-    )
+)
