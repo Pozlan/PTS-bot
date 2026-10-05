@@ -23,7 +23,7 @@ from app.services.economy import (
     parse_amount, InvalidAmount, InsufficientBalance, available_balance,
     adjust_balance, format_amount, record_result,
 )
-from app.services.challenge import create_challenge, resolve_challenge, get_challenge
+from app.services.challenge import create_challenge, resolve_challenge, get_challenge, set_challenge_message
 from app.services.response_engine import react, win_category, loss_category, wager_framing
 from app.utils.keyboards import challenge_keyboard, rps_choice_keyboard
 from app.utils.html_esc import esc
@@ -74,7 +74,9 @@ async def rps_cmd(message: Message):
     if framing:
         text += f"\n\n{framing}"
 
-    await message.answer(text, reply_markup=challenge_keyboard(challenge_id, wager, house_available))
+    sent = await message.answer(text, reply_markup=challenge_keyboard(challenge_id, wager, house_available))
+    async with get_session() as session:
+        await set_challenge_message(session, challenge_id, sent.message_id)
 
 
 @router.callback_query(F.data.startswith("rps:"))
