@@ -1,115 +1,59 @@
 """
-/mog -- open flex duel, scored off gift-cabinet value (see services/mog.py).
-No wager: rides the existing Challenge system purely for its accept/expire
-plumbing (wager=0), never touches balance beyond that. Deliberately its
-own callback prefix ("mogacc:") instead of the shared "acc:" handler in
-pvp_common.py, since that one dispatches by challenge.game and doesn't
-know about "mog" -- keeping this isolated means zero risk to the existing
-rps/coin/dice accept flow.
+/mog -- flex-only stat duel (no pts change hands, no wager). Scores a
+player's ENTIRE gift cabinet -- shop-bought and streak-earned -- by
+converting every tier into a common "low tier" unit using the ratios
+given: 1 limited = 3 high, 1 high = 4 mid, 1 mid = 5 low. Reduced to one
+base unit (low = 1):
+    low = 1, mid = 5, high = 20, limited = 60
 
-The red Cancel button ("cxl:", handled in pvp_common.py) works on any pending
-challenge regardless of game, so a host bailing on an unaccepted /mog
-challenge is covered. Same for the background expiry sweep in bot.py.
+Streak badges are a special case: every Gift row minted by streak.py has
+category="streak" and tier=None (see streak.mint_streak_gift), so there's
+no tier field to read directly. They're reclassified by milestone
+day-count instead, keyed off which STREAK_MILESTONES emoji_id the row
+actually has:
+    3-day badge          -> low
+    10/15/20/30-day badge -> mid
+    50-day and up         -> high
 """
-import random
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from aiogram import Router, F
-from aiogram.filters import Command
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from app.config import ECONOMY
+from app.database.models import Gift
+from app.services.gifts import player_cabinet
 
-from app.database.db import get_session
-from app.services.challenge import ChallengeError, accept_challenge, create_challenge, set_challenge_message
-from app.services.economy import get_or_create_group, get_or_create_state, get_or_create_user
-from app.services.game_common import finalize_pvp
-from app.services.mog import score
-from app.services.premium_emoji import mog_loser_stamp, mog_winner_stamp, pe
-from app.services.response_engine import react
-from app.utils.html_esc import esc
-
-router = Router()
-router.message.filter(F.chat.type.in_({"group", "supergroup"}))
-
-FLAIR_KEYS = ["mog_flair_1", "mog_flair_2", "mog_flair_3", "mog_flair_4"]
-_last_flair: str | None = None
+UNIT_VALUE = {"low": 1, "mid": 5, "high": 20, "limited": 60}
 
 
-def _random_flair() -> str:
-    """Same one-at-a-time / no-immediate-repeat idea as response_engine's
-    POOLS, just for the header's custom emoji instead of a text line."""
-    global _last_flair
-    choices = [k for k in FLAIR_KEYS if k != _last_flair]
-    key = random.choice(choices)
-    _last_flair = key
-    return pe(key)
-
-
-def _mog_keyboard(challenge_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="Accept", callback_data=f"mogacc:{challenge_id}", style="success")],
-        [InlineKeyboardButton(text="Cancel", callback_data=f"cxl:{challenge_id}", style="danger")],
-    ])
-
-
-@router.message(Command("mog"))
-async def mog_cmd(message: Message):
-    user = message.from_user
-    async with get_session() as session:
-        await get_or_create_user(session, user.id, user.full_name, user.username)
-        await get_or_create_group(session, message.chat.id, message.chat.title or "")
-        await get_or_create_state(session, user.id, message.chat.id)
-        challenge = await create_challenge(session, message.chat.id, "mog", user.id, wager=0)
-        challenge_id = challenge.id
-
-    text = (
-        f"{pe('mog_logo')} <b>MOG CHECK</b>\n\n"
-        f"{esc(user.full_name)} wants to mog someone. who's got the balls?"
-    )
-    sent = await message.answer(text, reply_markup=_mog_keyboard(challenge_id))
-    async with get_session() as session:
-        await set_challenge_message(session, challenge_id, sent.message_id)
-
-
-@router.callback_query(F.data.startswith("mogacc:"))
-async def on_mog_accept(callback: CallbackQuery):
-    challenge_id = int(callback.data.split(":", 1)[1])
-    acceptor = callback.from_user
-
-    async with get_session() as session:
-        await get_or_create_user(session, acceptor.id, acceptor.full_name, acceptor.username)
-        await get_or_create_group(session, callback.message.chat.id, callback.message.chat.title or "")
-        try:
-            challenge = await accept_challenge(session, challenge_id, acceptor.id)
-        except ChallengeError as e:
-            await callback.answer(str(e), show_alert=True)
-            return
-
-        creator_score = await score(session, challenge.creator_id)
-        acceptor_score = await score(session, challenge.acceptor_id)
-        if creator_score > acceptor_score:
-            winner_id = challenge.creator_id
-        elif acceptor_score > creator_score:
-            winner_id = challenge.acceptor_id
+def _build_streak_tier_map() -> dict[str, str]:
+    """emoji_id -> tier bucket, built once from ECONOMY.STREAK_MILESTONES
+    (the only place the day-count -> emoji_id mapping lives)."""
+    mapping = {}
+    for days, emoji_id in ECONOMY.STREAK_MILESTONES.items():
+        if days < 10:
+            mapping[emoji_id] = "low"
+        elif days < 50:
+            mapping[emoji_id] = "mid"
         else:
-            winner_id = None  # draw
+            mapping[emoji_id] = "high"
+    return mapping
 
-        info = await finalize_pvp(session, challenge, winner_id)
 
-    flair = _random_flair()
-    header = f"{pe('mog_logo')} <b>MOG RESULTS</b> {flair}"
+STREAK_TIER_BY_EMOJI = _build_streak_tier_map()
 
-    if winner_id is None:
-        text = f"{header}\n\n{react('mog_draw')}"
-    else:
-        if winner_id == info["creator_id"]:
-            winner_name, loser_name = info["creator_name"], info["acceptor_name"]
-        else:
-            winner_name, loser_name = info["acceptor_name"], info["creator_name"]
-        text = (
-            f"{header}\n\n"
-            f"{winner_name} is {mog_winner_stamp()}\n\n"
-            f"{loser_name} got {mog_loser_stamp()}\n\n"
-            f"{react('mog_roast', loser=loser_name)}"
-        )
 
-    await callback.message.edit_text(text)
-    await callback.answer()
+def classify_gift(gift: Gift) -> str:
+    """Returns one of "limited"/"high"/"mid"/"low" for any owned gift row,
+    shop-bought or streak-earned. Never raises -- an unrecognized streak
+    emoji id (e.g. STREAK_MILESTONES changed after this badge was minted)
+    falls back to "low" rather than crashing a result card."""
+    if gift.category == "streak":
+        return STREAK_TIER_BY_EMOJI.get(gift.emoji_id, "low")
+    if gift.tier is None:
+        return "limited"  # non-streak category with no tier = Limited Edition
+    return gift.tier  # "low" | "mid" | "high"
+
+
+async def score(session: AsyncSession, user_id: int) -> int:
+    """Total mog value for one player's full cabinet."""
+    owned = await player_cabinet(session, user_id)
+    return sum(UNIT_VALUE[classify_gift(g)] for g in owned)
