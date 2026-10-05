@@ -7,9 +7,13 @@ def challenge_keyboard(challenge_id: int, wager: int, house_available: bool) -> 
     # text on the button ("Accept · 1,000 <tg-emoji...>"). The amount is
     # already visible in the message text above the button, so the label
     # just needs to say what the button does.
-    rows = [[InlineKeyboardButton(text="Accept", callback_data=f"acc:{challenge_id}", style="success")]]
+    # row 1: Accept (+ "vs bot" when the wager is small enough for the house)
+    # row 2: red Cancel -- only the challenger can press it (checked in
+    # pvp_common.on_cancel_button, not here)
+    top = [InlineKeyboardButton(text="Accept", callback_data=f"acc:{challenge_id}", style="success")]
     if house_available:
-        rows.append([InlineKeyboardButton(text="Play vs Bot", callback_data=f"vsbot:{challenge_id}", style="success")])
+        top.append(InlineKeyboardButton(text="vs bot", callback_data=f"vsbot:{challenge_id}", style="success"))
+    rows = [top, [InlineKeyboardButton(text="Cancel", callback_data=f"cxl:{challenge_id}", style="danger")]]
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
