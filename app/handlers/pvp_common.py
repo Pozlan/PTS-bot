@@ -1,5 +1,5 @@
 """
-Every game's "Accept" and "Play vs Bot" buttons post here -- one Router,
+Every game's "Accept", "vs bot" and "Cancel" buttons post here -- one Router,
 one place that knows how to dispatch by challenge.game. HighLow isn't
 handled here anymore -- it's a solo streak game against the house with
 its own run lifecycle (see highlow_service.py), not a paired challenge.
@@ -19,7 +19,9 @@ from aiogram.types import CallbackQuery
 from app.config import ECONOMY
 from app.database.db import get_session
 from app.games import coin as coin_engine, dice as dice_engine
-from app.services.challenge import accept_challenge, get_challenge, cancel_own_pending, ChallengeError
+from app.services.challenge import (
+    accept_challenge, get_challenge, cancel_own_pending, cancel_pending_by_id, ChallengeError,
+)
 from app.services.economy import (
     get_or_create_user, get_or_create_group, get_or_create_state,
     format_amount, release_reservation,
@@ -40,6 +42,7 @@ HOUSE_CAP = {
 }
 GAME_EMOJI = {"coin": "🪙", "dice": "🎲"}
 GAME_TITLE = {"coin": "Coin Flip", "dice": "Dice Duel"}
+CANCEL_TITLE = {**GAME_TITLE, "rps": "RPS Duel"}
 
 
 def _game_header(game: str, suffix: str = "") -> str:
@@ -68,6 +71,24 @@ async def cancel_cmd(message: Message):
 
     total = sum(c.wager for c in cancelled)
     await message.reply(f"cancelled {len(cancelled)} game(s), {format_amount(total)} refunded.")
+
+
+@router.callback_query(F.data.startswith("cxl:"))
+async def on_cancel_button(callback: CallbackQuery):
+    """Red Cancel button under a pending challenge. Only the challenger, only
+    before anyone accepts -- the service enforces both and refunds."""
+    challenge_id = int(callback.data.split(":")[1])
+    async with get_session() as session:
+        try:
+            challenge = await cancel_pending_by_id(session, challenge_id, callback.from_user.id)
+        except ChallengeError as e:
+            await callback.answer(str(e), show_alert=True)
+            return
+        title, wager = CANCEL_TITLE.get(challenge.game, "Game"), challenge.wager
+
+    # edit_text without reply_markup also removes the buttons
+    await callback.message.edit_text(f"❌ <b>{title}</b> cancelled.\n{format_amount(wager)} refunded.")
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("acc:"))
@@ -259,4 +280,3 @@ async def on_coin_call(callback: CallbackQuery):
 
     await callback.message.edit_text("\n".join(lines))
     await callback.answer()
-                                  
