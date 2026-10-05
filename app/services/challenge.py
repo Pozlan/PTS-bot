@@ -48,6 +48,14 @@ async def create_challenge(
     return challenge
 
 
+async def set_challenge_message(session: AsyncSession, challenge_id: int, message_id: int) -> None:
+    """Remember which Telegram message shows this challenge, so the expiry
+    sweep can edit it to 'expired' later."""
+    challenge = await session.get(Challenge, challenge_id)
+    if challenge is not None:
+        challenge.message_id = message_id
+
+
 async def get_challenge(session: AsyncSession, challenge_id: int) -> Challenge | None:
     return await session.get(Challenge, challenge_id)
 
