@@ -8,7 +8,7 @@ from app.services.economy import (
     get_or_create_user, get_or_create_group, get_or_create_state,
     parse_amount, InvalidAmount, InsufficientBalance, available_balance, format_amount,
 )
-from app.services.challenge import create_challenge
+from app.services.challenge import create_challenge, set_challenge_message
 from app.services.response_engine import wager_framing
 from app.utils.keyboards import challenge_keyboard
 from app.utils.html_esc import esc
@@ -55,4 +55,6 @@ async def dice_cmd(message: Message):
     if framing:
         text += f"\n\n{framing}"
 
-    await message.answer(text, reply_markup=challenge_keyboard(challenge_id, wager, house_available))
+    sent = await message.answer(text, reply_markup=challenge_keyboard(challenge_id, wager, house_available))
+    async with get_session() as session:
+        await set_challenge_message(session, challenge_id, sent.message_id)
