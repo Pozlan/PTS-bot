@@ -20,7 +20,7 @@ from app.config import ECONOMY
 from app.database.db import get_session
 from app.games import coin as coin_engine, dice as dice_engine
 from app.services.challenge import (
-    accept_challenge, get_challenge, cancel_own_pending, cancel_pending_by_id, ChallengeError,
+    accept_challenge, get_challenge, cancel_pending_by_id, ChallengeError,
 )
 from app.services.economy import (
     get_or_create_user, get_or_create_group, get_or_create_state,
@@ -42,7 +42,7 @@ HOUSE_CAP = {
 }
 GAME_EMOJI = {"coin": "🪙", "dice": "🎲"}
 GAME_TITLE = {"coin": "Coin Flip", "dice": "Dice Duel"}
-CANCEL_TITLE = {**GAME_TITLE, "rps": "RPS Duel"}
+CANCEL_TITLE = {**GAME_TITLE, "rps": "RPS Duel", "mog": "Mog Check"}
 
 
 def _game_header(game: str, suffix: str = "") -> str:
@@ -55,22 +55,24 @@ async def _ensure_player(session, user, chat):
     return await get_or_create_state(session, user.id, chat.id)
 
 
-@router.message(Command("cancel"))
-async def cancel_cmd(message: Message):
-    """Public self-service cancel -- anyone can bail on their OWN hosted
-    game while it's still unaccepted, instant refund, no waiting for the
-    3-min timer. Deliberately can't touch a game someone already accepted
-    (see cancel_own_pending) -- that's the line that keeps this safe to
-    make public instead of owner-only like /reset."""
-    async with get_session() as session:
-        cancelled = await cancel_own_pending(session, message.from_user.id)
-
-    if not cancelled:
-        await message.reply("you don't have any open (unaccepted) games to cancel.")
-        return
-
-    total = sum(c.wager for c in cancelled)
-    await message.reply(f"cancelled {len(cancelled)} game(s), {format_amount(total)} refunded.")
+async def announce_expired(bot, items: list[tuple[int, int | None, str, int, bool]]) -> None:
+    """Called by the sweep in bot.py after it refunded expired challenges.
+    items = (group_id, message_id, game, wager, was_accepted). Edits the
+    original game message so players see 'expired' instead of buttons that
+    no longer work. A deleted/uneditable message is ignored."""
+    for group_id, message_id, game, wager, was_accepted in items:
+        if not message_id:
+            continue
+        title = CANCEL_TITLE.get(game, "Game")
+        if was_accepted:
+            text = f"⌛ <b>{title}</b> expired.\nboth wagers refunded."
+        else:
+            refund_line = f"\n{format_amount(wager)} refunded." if wager else ""
+            text = f"⌛ <b>{title}</b> expired, nobody accepted.{refund_line}"
+        try:
+            await bot.edit_message_text(text, chat_id=group_id, message_id=message_id)
+        except Exception:
+            pass
 
 
 @router.callback_query(F.data.startswith("cxl:"))
@@ -87,7 +89,8 @@ async def on_cancel_button(callback: CallbackQuery):
         title, wager = CANCEL_TITLE.get(challenge.game, "Game"), challenge.wager
 
     # edit_text without reply_markup also removes the buttons
-    await callback.message.edit_text(f"❌ <b>{title}</b> cancelled.\n{format_amount(wager)} refunded.")
+    refund_line = f"\n{format_amount(wager)} refunded." if wager else ""
+    await callback.message.edit_text(f"❌ <b>{title}</b> cancelled.{refund_line}")
     await callback.answer()
 
 
