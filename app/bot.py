@@ -12,6 +12,7 @@ from app.database.db import init_db, get_session
 from app.handlers import economy, wallet, social, rps, coin, dice, highlow, dart, shop, pvp_common, admin, inbox, streak, mog, lebron, word
 from app.services.challenge import cancel_expired
 from app.handlers.word import contest_sweep_loop
+from app.handlers.pvp_common import announce_expired
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("ptsbot")
@@ -52,7 +53,7 @@ def build_dispatcher() -> Dispatcher:
     return dp
 
 
-async def _challenge_sweep_loop() -> None:
+async def _challenge_sweep_loop(bot) -> None:
     """Bug fix: hosted PvP challenges (rps/coin/dice/highlow) reserve the
     creator's wager immediately but only got refunded if someone happened to
     try accepting them after expiry -- if nobody ever did, the reservation
@@ -64,10 +65,17 @@ async def _challenge_sweep_loop() -> None:
     sweep for expired pending challenges and refund them automatically."""
     while True:
         try:
+            items = []
             async with get_session() as session:
                 expired = await cancel_expired(session)
                 if expired:
                     logger.info(f"challenge sweep: refunded {len(expired)} expired challenge(s)")
+                    items = [
+                        (c.group_id, c.message_id, c.game, c.wager, c.acceptor_id is not None)
+                        for c in expired
+                    ]
+            if items:
+                await announce_expired(bot, items)  # edit the game messages to "expired"
         except Exception:
             logger.exception("challenge sweep failed")
         await asyncio.sleep(ECONOMY.CHALLENGE_SWEEP_INTERVAL_S)
@@ -105,7 +113,7 @@ async def run() -> None:
     # run: no crash, no log line, it just stops existing. This is the
     # documented asyncio gotcha ("save a reference to the result"). Keeping
     # it on the bot object is enough to prevent that.
-    bot.sweep_task = asyncio.create_task(_challenge_sweep_loop())
+    bot.sweep_task = asyncio.create_task(_challenge_sweep_loop(bot))
     bot.contest_task = asyncio.create_task(contest_sweep_loop(bot))  # same reason: keep a reference
     logger.info("ptsbot starting polling")
     await dp.start_polling(bot)
