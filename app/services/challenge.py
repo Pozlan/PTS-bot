@@ -154,6 +154,23 @@ async def cancel_own_pending(session: AsyncSession, user_id: int) -> list[Challe
     return own_pending
 
 
+async def cancel_pending_by_id(session: AsyncSession, challenge_id: int, user_id: int) -> Challenge:
+    """The red Cancel button. Same safety line as cancel_own_pending: only the
+    challenger, and only while still 'pending' (nobody has accepted yet).
+    Refunds the wager instantly. Raises ChallengeError with a message that is
+    shown to the player as a popup."""
+    challenge = await session.get(Challenge, challenge_id)
+    if challenge is None:
+        raise ChallengeError("this challenge no longer exists.")
+    if challenge.status != "pending":
+        raise ChallengeError("this game can't be cancelled anymore.")
+    if user_id != challenge.creator_id:
+        raise ChallengeError("only the challenger can cancel this.")
+    challenge.status = "cancelled"
+    await _refund_creator(session, challenge)
+    return challenge
+
+
 async def force_cancel_all(session: AsyncSession) -> list[Challenge]:
     """Manual escape hatch for /reset (admin.py) -- same refund logic as
     cancel_expired, but with NO expiry check at all. Clears every open
@@ -221,4 +238,3 @@ async def _expire_one(session: AsyncSession, challenge: Challenge) -> None:
 async def _refund_creator(session: AsyncSession, challenge: Challenge) -> None:
     creator_state = await get_or_create_state(session, challenge.creator_id, challenge.group_id)
     await release_reservation(session, creator_state, challenge.wager)
-  
