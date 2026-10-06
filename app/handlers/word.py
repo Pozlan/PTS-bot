@@ -32,6 +32,7 @@ from app.services.word_logic import (
     MAX_GUESSES, MIN_GIVEUP_GUESSES, format_left, parse_duration, render_marks, score_guess,
 )
 from app.services import wordgame as wg
+from app.services.sweep_gate import contest_gate
 from app.utils.html_esc import esc
 from app.utils.time import utcnow
 
@@ -263,15 +264,19 @@ async def finalize_contest(bot: Bot, contest_id: int) -> None:
 
 
 async def contest_sweep_loop(bot: Bot) -> None:
-    """Checks every 15s for contests whose time is up. Reads the database
-    each time, so a restart of the bot never loses a running contest."""
+    """Every 15s, checks whether a contest's end time has passed. It only reads
+    the database when one is due (see sweep_gate.py), and always once after a
+    restart, so a restart never loses a running contest."""
+    first = True  # first pass after a restart always checks the database once
     while True:
         try:
-            async with get_session() as session:
-                due = await wg.due_contest_ids(session)
-            for cid in due:
-                await finalize_contest(bot, cid)
+            if first or contest_gate.is_due():  # otherwise just a memory check
+                first = False
+                async with get_session() as session:
+                    due = await wg.due_contest_ids(session)
+                for cid in due:
+                    await finalize_contest(bot, cid)
+                contest_gate.clear_due()
         except Exception:
             logger.exception("contest sweep failed")
         await asyncio.sleep(15)
-  
