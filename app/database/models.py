@@ -220,7 +220,7 @@ class WordRound(Base):
     group_id: Mapped[int] = mapped_column(BigInteger, index=True)
     word: Mapped[str] = mapped_column(String(4))
     guesses: Mapped[str] = mapped_column(String(256), default="")  # space-separated, in order
-    status: Mapped[str] = mapped_column(String(8), default="active")  # active | solved | failed
+    status: Mapped[str] = mapped_column(String(8), default="active")  # active | solved | failed | gaveup
     solver_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     started_by: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
@@ -249,3 +249,12 @@ class WordSolve(Base):
     round_id: Mapped[int] = mapped_column(Integer)
     contest_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
+
+
+class StartedUser(Base):
+    """Players who have opened the bot in DM at least once. The start gate
+    (services/start_gate.py) blocks everyone else in groups."""
+    __tablename__ = "started_users"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
