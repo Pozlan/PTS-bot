@@ -14,6 +14,7 @@ from app.services.challenge import cancel_expired, take_announcements
 from app.services.sweep_gate import challenge_gate
 from app.handlers.word import contest_sweep_loop
 from app.handlers.pvp_common import announce_expired
+from app.services.start_gate import StartGate
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("ptsbot")
@@ -21,6 +22,9 @@ logger = logging.getLogger("ptsbot")
 
 def build_dispatcher() -> Dispatcher:
     dp = Dispatcher()
+    # nobody uses the bot in a group before pressing Start in DM (services/start_gate.py)
+    dp.message.outer_middleware(StartGate())
+    dp.callback_query.outer_middleware(StartGate())
 
     @dp.error()
     async def on_error(event, exception=None):
