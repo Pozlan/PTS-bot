@@ -14,7 +14,6 @@ every player should see the welcome message once.
   through rather than breaking the whole bot.
 """
 import logging
-import time
 
 from aiogram import BaseMiddleware
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
@@ -26,8 +25,6 @@ from app.database.models import StartedUser
 logger = logging.getLogger("ptsbot.startgate")
 
 _started: set[int] = set()               # cache, so most checks never hit the database
-_last_prompt: dict[int, float] = {}      # user_id -> when we last showed the prompt
-PROMPT_COOLDOWN_S = 30                   # don't spam the same person in the group
 
 PROMPT_TEXT = (
     "👋 start the bot first to play.\n"
@@ -59,11 +56,8 @@ def start_link(bot_username: str) -> str:
 
 
 async def send_start_prompt(message: Message) -> None:
-    uid = message.from_user.id
-    now = time.monotonic()
-    if now - _last_prompt.get(uid, -1e9) < PROMPT_COOLDOWN_S:
-        return
-    _last_prompt[uid] = now
+    # No cooldown on purpose: every blocked command gets this reply, so a
+    # player who missed it once always finds out why the bot isn't answering.
     me = await message.bot.me()
     kb = InlineKeyboardMarkup(inline_keyboard=[[
         InlineKeyboardButton(text="Start the bot", url=start_link(me.username), style="success")
