@@ -12,6 +12,7 @@ random number, so it actually LOOKS like a dice roll instead of the bot
 just declaring a winner.
 """
 import json
+import logging
 
 from aiogram import Router, F
 from aiogram.types import CallbackQuery
@@ -71,8 +72,8 @@ async def announce_expired(bot, items: list[tuple[int, int | None, str, int, boo
             text = f"⌛ <b>{title}</b> expired, nobody accepted.{refund_line}"
         try:
             await bot.edit_message_text(text, chat_id=group_id, message_id=message_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.getLogger("ptsbot").warning("could not edit expired game message: %s", e)
 
 
 @router.callback_query(F.data.startswith("cxl:"))
