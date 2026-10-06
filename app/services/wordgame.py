@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models import Gift, PlayerState, User, WordContest, WordRound, WordSolve
 from app.services.economy import GLOBAL_ID
 from app.services.premium_emoji import raw_tag
+from app.services.sweep_gate import contest_gate
 from app.services.word_logic import MAX_GUESSES, score_guess
 from app.services.wordlist import ANSWERS, VALID
 from app.utils.time import utcnow
@@ -69,6 +70,7 @@ async def start_contest(session: AsyncSession, group_id: int, user_id: int, seco
     )
     session.add(contest)
     await session.flush()
+    contest_gate.note(contest.ends_at)  # tells the sweep when to look again
     return contest
 
 
