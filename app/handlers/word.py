@@ -32,6 +32,7 @@ from app.services.word_logic import (
     MAX_GUESSES, MIN_GIVEUP_GUESSES, format_left, parse_duration, render_marks, score_guess,
 )
 from app.services import wordgame as wg
+from app.services.start_gate import send_start_prompt
 from app.services.sweep_gate import contest_gate
 from app.utils.html_esc import esc
 from app.utils.time import utcnow
@@ -129,7 +130,7 @@ async def giveup_cmd(message: Message):
 
 
 @router.message(F.text.regexp(GUESS_RE))
-async def guess_msg(message: Message):
+async def guess_msg(message: Message, is_started: bool = True):
     if message.from_user is None or message.from_user.is_bot:
         return
     async with _locks[message.chat.id]:
@@ -137,6 +138,9 @@ async def guess_msg(message: Message):
             rnd = await wg.get_active_round(session, message.chat.id)
             if rnd is None:
                 return  # no round running: stay silent, it's just chat
+            if not is_started:
+                await send_start_prompt(message)  # round is live, so tell them why their guess didn't count
+                return
             user = message.from_user
             await get_or_create_user(session, user.id, user.full_name, user.username)
             res = await wg.submit_guess(session, rnd, user.id, message.text)
