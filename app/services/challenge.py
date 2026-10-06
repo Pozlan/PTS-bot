@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database.models import Challenge, PlayerState
 from app.services.economy import get_or_create_state, reserve, release_reservation, InsufficientBalance, GLOBAL_ID
 from app.config import ECONOMY
+from app.services.sweep_gate import challenge_gate
 from app.utils.time import utcnow as _now
 
 
@@ -45,6 +46,7 @@ async def create_challenge(
     )
     session.add(challenge)
     await session.flush()
+    challenge_gate.note(challenge.expires_at)  # tells the sweep when to look again
     return challenge
 
 
@@ -227,6 +229,18 @@ async def cancel_expired_for_user(session: AsyncSession, user_id: int) -> list[C
     return expired
 
 
+# (group_id, message_id, game, wager, was_accepted) waiting for the sweep to
+# edit the game message to "expired". In memory only: if the bot restarts the
+# refund still happened, the old message just keeps its buttons.
+_announce_queue: list[tuple[int, int | None, str, int, bool]] = []
+
+
+def take_announcements() -> list[tuple[int, int | None, str, int, bool]]:
+    items = list(_announce_queue)
+    _announce_queue.clear()
+    return items
+
+
 async def _expire_one(session: AsyncSession, challenge: Challenge) -> None:
     # Status flips to "expired" FIRST, before either refund call. Both
     # refunds go through get_or_create_state, which now ALSO self-heals
@@ -237,6 +251,11 @@ async def _expire_one(session: AsyncSession, challenge: Challenge) -> None:
     # query's status filter no longer matches it.
     was_accepted = challenge.status == "accepted"
     challenge.status = "expired"
+    # EVERY expiry goes through here (background sweep AND the per-player
+    # self-heal), so queue the message edit here and the sweep announces it.
+    _announce_queue.append(
+        (challenge.group_id, challenge.message_id, challenge.game, challenge.wager, was_accepted)
+    )
     await _refund_creator(session, challenge)
     if was_accepted:
         acceptor_state = await get_or_create_state(session, challenge.acceptor_id, challenge.group_id)
