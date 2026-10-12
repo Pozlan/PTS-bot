@@ -8,8 +8,10 @@ from app.database.models import Base
 engine = create_async_engine(
     settings.database_url,
     echo=False,
-    pool_size=3,
-    max_overflow=2,
+    pool_size=5,
+    max_overflow=5,
+    pool_pre_ping=True,   # test a connection before use -- Neon closes idle ones
+    pool_recycle=300,     # replace connections older than 5 min
     connect_args={"ssl": "require"},
 )
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
@@ -26,6 +28,7 @@ _PENDING_COLUMNS = [
     ("player_state", "equipped_gift_id", "INTEGER REFERENCES gifts(id)"),
     ("player_state", "robbed_immune_until", "TIMESTAMP"),
     ("player_state", "hits_since_protection", "INTEGER DEFAULT 0"),
+    ("player_state", "last_hit_at", "TIMESTAMP"),
     ("player_state", "streak_count", "INTEGER DEFAULT 0"),
     ("player_state", "streak_best", "INTEGER DEFAULT 0"),
     ("player_state", "last_streak_at", "TIMESTAMP"),

@@ -32,9 +32,16 @@ def build_dispatcher() -> Dispatcher:
         logger.exception("unhandled error in update", exc_info=exc)
         update = getattr(event, "update", None)
         message = getattr(update, "message", None) if update else None
+        callback = getattr(update, "callback_query", None) if update else None
         if message is not None:
             try:
                 await message.reply("something broke on my end, try again in a sec.")
+            except Exception:
+                pass
+        elif callback is not None:
+            # button presses used to fail silently (the button just spun)
+            try:
+                await callback.answer("something broke, try again.", show_alert=True)
             except Exception:
                 pass
         return True

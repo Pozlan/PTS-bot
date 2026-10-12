@@ -85,6 +85,9 @@ class PlayerState(Base):
     # /protect again, which resets it to 0. See handlers/social.py::rob
     # and handlers/social.py::protect.
     hits_since_protection: Mapped[int] = mapped_column(Integer, default=0)
+    # When the player was last successfully robbed. Used to reset
+    # hits_since_protection after ECONOMY.ROBBERY_HIT_RESET_S.
+    last_hit_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
 
     protected_until: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
     door_open_until: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)

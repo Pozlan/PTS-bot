@@ -12,6 +12,7 @@ from app.services.economy import (
     parse_amount, InvalidAmount, InsufficientBalance, available_balance, adjust_balance, format_amount,
 )
 from app.services.response_engine import react
+from app.services.robbery import refresh_hits, safe_minutes_left
 from app.utils.targeting import resolve_reply_target
 from app.utils.time import utcnow
 from app.utils.html_esc import esc
@@ -93,6 +94,7 @@ async def protect(message: Message):
         state.protected_until = now + timedelta(seconds=ECONOMY.PROTECTION_DURATION_S)
         state.door_open_until = None
         state.hits_since_protection = 0  # fresh 2-hit allowance for their next unprotected stretch
+        state.last_hit_at = None
 
     await message.reply(
         f"{pe('save')} <b>Protection active</b>\nno one can rob you for <b>24h</b>.\nyou're also locked out of robbery.",
@@ -139,12 +141,14 @@ async def rob(message: Message):
             await message.reply(text)
             return
 
-        # Hard cap -- once hit this many times since their last /protect,
-        # a player is fully unrobbable until they run /protect again
-        # (which resets the counter to 0). No robber cooldown exists
-        # anymore, so this is what actually bounds total exposure.
-        if target_state.hits_since_protection >= ECONOMY.ROBBERY_MAX_HITS_BEFORE_PROTECTION:
-            await message.reply(f"{esc(target.full_name)} needs to run /protect before anyone can rob them again.")
+        # Hard cap -- once hit this many times, a player is unrobbable until
+        # the counter resets: /protect resets it, and it also resets by
+        # itself ROBBERY_HIT_RESET_S after their last hit. No robber
+        # cooldown exists anymore, so this is what bounds total exposure.
+        hits = refresh_hits(target_state, now, ECONOMY.ROBBERY_HIT_RESET_S)
+        if hits >= ECONOMY.ROBBERY_MAX_HITS_BEFORE_PROTECTION:
+            mins = safe_minutes_left(target_state, now, ECONOMY.ROBBERY_HIT_RESET_S)
+            await message.reply(f"{esc(target.full_name)} is safe for {mins} more min.")
             return
 
         # Auto grace period -- blocks EVERY robber, not just this one, for
@@ -169,6 +173,7 @@ async def rob(message: Message):
         robber_state.robberies_success += 1
         target_state.times_robbed += 1
         target_state.hits_since_protection += 1
+        target_state.last_hit_at = now
         target_state.robbed_immune_until = now + timedelta(seconds=ECONOMY.ROBBERY_VICTIM_GRACE_S)
         text = react("rob_success", robber=esc(robber.full_name), target=esc(target.full_name), amount=steal)
 

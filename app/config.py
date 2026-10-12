@@ -63,7 +63,7 @@ class EconomyConfig:
     HUNT_SUCCESS_RATE: float = 0.5
     HUNT_MIN_STAKE: int = 200
     HUNT_MAX_STAKE: int = 10_000_000       # was uncapped -- let a big enough stake x4 reward snowball a balance
-    HUNT_REWARD_MULT: tuple = (1.5, 4.0)   # win: stake * random in this range
+    HUNT_REWARD_MULT: tuple = (1.5, 3.0)   # win: stake * random in this range (max 3x)
     HUNT_LOSS_MULT: tuple = (0.5, 1.0)     # loss: stake * random in this range, deducted
 
     # /luck
@@ -133,6 +133,12 @@ class EconomyConfig:
     # bounds total exposure -- no cooldown slows attackers down, so the
     # cap has to live here instead.
     ROBBERY_MAX_HITS_BEFORE_PROTECTION: int = 2
+
+    # The hit counter also resets by itself this long after the player's
+    # LAST hit, so nobody stays unrobbable forever just because they never
+    # ran /protect again. After 2 hits they are safe for this long, then
+    # they can be robbed again.
+    ROBBERY_HIT_RESET_S: int = 3600
 
     # Protection
     PROTECTION_DURATION_S: int = 24 * 3600
