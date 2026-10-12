@@ -108,6 +108,12 @@ async def get_or_create_state(session: AsyncSession, user_id: int, group_id: int
         state = PlayerState(user_id=user_id, group_id=GLOBAL_ID, balance=ECONOMY.STARTING_BALANCE)
         session.add(state)
         await session.flush()
+        # Record the starting balance so the ledger adds up to the wallet
+        # from day one (it used to be missing, so every wallet looked off).
+        session.add(Transaction(
+            group_id=GLOBAL_ID, user_id=user_id, kind="start",
+            amount=ECONOMY.STARTING_BALANCE, balance_after=state.balance, ref="starting balance",
+        ))
 
     from app.services.challenge import cancel_expired_for_user
     await cancel_expired_for_user(session, user_id)

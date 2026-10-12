@@ -9,7 +9,7 @@ from aiohttp import web
 
 from app.config import settings, ECONOMY
 from app.database.db import init_db, get_session
-from app.handlers import economy, wallet, social, rps, coin, dice, highlow, dart, shop, pvp_common, admin, inbox, streak, mog, lebron, word
+from app.handlers import economy, wallet, social, rps, coin, dice, highlow, dart, shop, pvp_common, admin, maintenance, inbox, streak, mog, lebron, word
 from app.services.challenge import cancel_expired, take_announcements
 from app.services.sweep_gate import challenge_gate
 from app.handlers.word import contest_sweep_loop
@@ -60,6 +60,7 @@ def build_dispatcher() -> Dispatcher:
     dp.include_router(lebron.router)
     dp.include_router(word.router)
     dp.include_router(admin.router)
+    dp.include_router(maintenance.router)
     dp.include_router(pvp_common.router)  # owns "acc:", "vsbot:", "coin:" callbacks for all games
     dp.include_router(inbox.router)  # DM-only: /bal, /stats, /gtop, banner /start, fallback for everything else
     return dp

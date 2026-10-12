@@ -356,3 +356,22 @@ class GiftEvent(Base):
         Index("ix_gift_events_gift", "gift_id"),
         Index("ix_gift_events_kind_time", "kind", "created_at"),
     )
+
+
+class LegacyGift(Base):
+    """Copy of every old shop gift taken during the gift-economy migration.
+    Keeps the original id, emoji id, tier, price and owner so nothing is lost
+    and the old emoji art can be reused in new releases. Never deleted."""
+    __tablename__ = "legacy_gifts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=False)  # old gifts.id
+    category: Mapped[str] = mapped_column(String(64))
+    tier: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    emoji_id: Mapped[str] = mapped_column(String(32))
+    price: Mapped[int] = mapped_column(BigInteger)
+    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # NULL = unsold stock
+    purchased_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    added_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    was_equipped: Mapped[bool] = mapped_column(Boolean, default=False)
+    refund_amount: Mapped[int] = mapped_column(BigInteger, default=0)   # half of price if it had an owner
+    retired_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)

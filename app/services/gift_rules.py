@@ -34,6 +34,8 @@ KIND_MARKET_BUY = "market_buy"       # buyer pays the listed price
 KIND_MARKET_SALE = "market_sale"     # seller receives the listed price
 KIND_MARKET_FEE = "market_fee"       # 10% fee, burned (removes PTS)
 KIND_GIFT_FEE = "gift_fee"           # 2m /gift fee, burned (removes PTS)
+KIND_START = "start"                 # starting balance given to a new wallet (creates PTS)
+KIND_LEDGER_FIX = "ledger_fix"       # one-time entry that records an unrecorded balance change
 
 
 def limited_score(price: int) -> int:

@@ -177,4 +177,5 @@ async def economy_report(message: Message):
 
     async with get_session() as session:
         report = await build_report(session, days)
-    await message.reply(format_report(report))
+    state = "on" if settings.gift_economy else "off"
+    await message.reply(format_report(report) + f"\nGift economy switch: {state}")

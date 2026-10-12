@@ -50,6 +50,10 @@ def classify(kind: str, amount: int, is_house: bool) -> tuple[str, str]:
         return REMOVED, "gift fee (burn)"
     if kind in (rules.KIND_MARKET_BUY, rules.KIND_MARKET_SALE):
         return TRANSFER, "market"
+    if kind == rules.KIND_START:
+        return CREATED, "starting balances"
+    if kind == rules.KIND_LEDGER_FIX:
+        return (CREATED if amount > 0 else REMOVED), "ledger correction"
     return OTHER, kind
 
 

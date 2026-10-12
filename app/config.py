@@ -14,6 +14,9 @@ class Settings(BaseSettings):
     bot_token: str
     database_url: str = "sqlite+aiosqlite:///./ptsbot.db"
     owner_ids: str = ""
+    # Master switch for the new gift economy (env GIFT_ECONOMY=on/off).
+    # Off = old shop behaves exactly as before and the payout button is locked.
+    gift_economy: bool = False
 
     class Config:
         env_file = ".env"

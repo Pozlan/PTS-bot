@@ -2,6 +2,7 @@
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
+from app.config import ECONOMY
 from app.database.models import Base
 from app.services.economy import get_or_create_user, get_or_create_group, get_or_create_state, adjust_balance
 from app.services.economy_report import (
@@ -85,8 +86,9 @@ async def test_report_end_to_end(session_maker):
         r = await build_report(session, 7)
 
     assert r.players == 2
-    assert r.supply == 19_400
-    assert sum(r.created.values()) == 20_000
+    start = 2 * ECONOMY.STARTING_BALANCE            # each new wallet logs its starting balance
+    assert r.supply == start + 20_000 - 600
+    assert sum(r.created.values()) == 20_000 + start
     assert sum(r.removed.values()) == 600
     assert sum(r.transferred.values()) == 500          # counted once, not twice
     assert r.all_created - r.all_removed == r.supply   # transfers net to zero
