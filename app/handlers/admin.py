@@ -12,6 +12,7 @@ from app.config import settings
 from app.database.db import get_session
 from app.database.models import User
 from app.services.challenge import force_cancel_all, reconcile_reservations
+from app.services.economy_report import build_report, format_report
 from app.services.economy import (
     format_amount, parse_amount, InvalidAmount, get_or_create_user,
     get_or_create_state, adjust_balance,
@@ -160,3 +161,20 @@ async def emojiid(message: Message):
 
     lines = ["<b>Custom emoji ID(s)</b>"] + [f"<code>{cid}</code>" for cid in ids]
     await message.reply("\n".join(lines))
+
+
+@router.message(Command("economy"))
+async def economy_report(message: Message):
+    """Owner-only report: supply, balance spread, PTS created vs removed,
+    gift and market numbers. Read-only. Usage: /economy or /economy 30"""
+    if message.from_user.id not in settings.owner_id_set:
+        return  # silently ignore, same as the other owner tools
+
+    days = 7
+    parts = (message.text or "").split()
+    if len(parts) > 1 and parts[1].isdigit():
+        days = max(1, min(int(parts[1]), 365))
+
+    async with get_session() as session:
+        report = await build_report(session, days)
+    await message.reply(format_report(report))

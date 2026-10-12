@@ -33,6 +33,9 @@ _PENDING_COLUMNS = [
     ("player_state", "streak_best", "INTEGER DEFAULT 0"),
     ("player_state", "last_streak_at", "TIMESTAMP"),
     ("player_state", "streak_milestone_claimed", "INTEGER DEFAULT 0"),
+    ("gifts", "soulbound", "BOOLEAN DEFAULT FALSE"),
+    ("gifts", "release_id", "INTEGER"),
+    ("gifts", "score", "INTEGER"),
 ]
 
 
@@ -42,6 +45,11 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await conn.run_sync(_add_missing_columns)
+        # Streak badges are permanent and non-tradable. Idempotent.
+        await conn.execute(text(
+            "UPDATE gifts SET soulbound = TRUE WHERE category = 'streak' "
+            "AND (soulbound IS NULL OR soulbound = FALSE)"
+        ))
     await _ensure_global_group()
 
 

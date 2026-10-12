@@ -7,7 +7,7 @@ a PlayerState is unique per (user_id, group_id).
 from datetime import datetime
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String,
-    UniqueConstraint, Index,
+    UniqueConstraint, Index, text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -198,6 +198,15 @@ class Gift(Base):
 
     added_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
 
+    # --- new gift economy (added in update 2; old code ignores these) ---
+    # Streak badges: earned, never traded. Set True for category "streak".
+    soulbound: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Which release batch this item came from (NULL for old/legacy gifts).
+    release_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Fixed /mog score, set from the OFFICIAL price when the item is released.
+    # NULL = not set yet (legacy rows). Never derived from a resale price.
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
 
 class GameHistory(Base):
     """One row per completed game, used by the response engine for context
@@ -261,3 +270,89 @@ class StartedUser(Base):
 
     user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     started_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
+
+
+class GiftRelease(Base):
+    """One batch of newly added gifts. The whole batch stays unavailable
+    until `goes_live_at` (15 minutes after it was added). Stored in the
+    database so a restart or redeploy never loses or resets the timer."""
+    __tablename__ = "gift_releases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(8))              # "tiered" | "limited"
+    status: Mapped[str] = mapped_column(String(10), default="pending")  # pending | live | cancelled
+    created_by: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
+    goes_live_at: Mapped[datetime] = mapped_column(DateTime())
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+
+    __table_args__ = (Index("ix_gift_releases_status_live", "status", "goes_live_at"),)
+
+
+class ReleaseAnnouncement(Base):
+    """One announcement message per group per release, so it can be edited
+    when the batch goes live. A failed pin is stored, never fatal."""
+    __tablename__ = "release_announcements"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    release_id: Mapped[int] = mapped_column(Integer, ForeignKey("gift_releases.id"))
+    chat_id: Mapped[int] = mapped_column(BigInteger)
+    message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False)
+    error: Mapped[str] = mapped_column(String(256), default="")   # send/pin problem, if any
+    live_notice_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    __table_args__ = (UniqueConstraint("release_id", "chat_id", name="uq_announcement_release_chat"),)
+
+
+class GiftListing(Base):
+    """A player's /list offer. `token` is the opaque id used in button
+    callback data (never a raw gift id or user text)."""
+    __tablename__ = "gift_listings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    token: Mapped[str] = mapped_column(String(16), unique=True)
+    gift_id: Mapped[int] = mapped_column(Integer, ForeignKey("gifts.id"))
+    seller_id: Mapped[int] = mapped_column(BigInteger)
+    price: Mapped[int] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(String(10), default="active")  # active | sold | cancelled | expired
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime())
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    buyer_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    chat_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    __table_args__ = (
+        # An item can have only ONE active listing. The database enforces it,
+        # so two requests racing each other cannot both succeed.
+        Index(
+            "uq_gift_listings_one_active", "gift_id", unique=True,
+            postgresql_where=text("status = 'active'"),
+            sqlite_where=text("status = 'active'"),
+        ),
+        Index("ix_gift_listings_status_expires", "status", "expires_at"),
+    )
+
+
+class GiftEvent(Base):
+    """Append-only ownership/market history for unique gifts. Used for
+    audit and for the economy report. Never updated after insert."""
+    __tablename__ = "gift_events"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    gift_id: Mapped[int] = mapped_column(Integer, ForeignKey("gifts.id"))
+    # release | drop_buy | list | cancel | expire | sale | gift | legacy_retire
+    kind: Mapped[str] = mapped_column(String(14))
+    from_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    to_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    price: Mapped[int] = mapped_column(BigInteger, default=0)
+    fee: Mapped[int] = mapped_column(BigInteger, default=0)    # amount burned
+    listing_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    release_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(), default=utcnow)
+
+    __table_args__ = (
+        Index("ix_gift_events_gift", "gift_id"),
+        Index("ix_gift_events_kind_time", "kind", "created_at"),
+    )

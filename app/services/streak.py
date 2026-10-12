@@ -89,6 +89,7 @@ async def mint_streak_gift(session: AsyncSession, user_id: int, milestone_days: 
         price=0,
         owner_user_id=user_id,
         purchased_at=_now(),
+        soulbound=True,
     )
     session.add(gift)
     await session.flush()  # populate gift.id for the caller's reply text
