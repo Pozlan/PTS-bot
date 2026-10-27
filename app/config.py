@@ -1,11 +1,4 @@
-"""
-All tunable economy values live here. Nothing gameplay-related should be
-hardcoded inside handlers/games/services — pull it from here so balancing
-the game never means hunting through source files.
-
-Per-group overrides (via /gconfig) are stored in GroupSettings and layered
-on top of these defaults at read time — see services/economy.py:get_group_config.
-"""
+""" All tunable economy values live here. Nothing gameplay-related should be hardcoded inside handlers/games/services — pull it from here so balancing the game never means hunting through source files. Per-group overrides (via /gconfig) are stored in GroupSettings and layered on top of these defaults at read time — see services/economy.py:get_group_config. """
 from dataclasses import dataclass, field
 from pydantic_settings import BaseSettings
 
@@ -17,11 +10,14 @@ class Settings(BaseSettings):
     # Master switch for the new gift economy (env GIFT_ECONOMY=on/off).
     # Off = old shop behaves exactly as before and the payout button is locked.
     gift_economy: bool = False
+    # Channel people must join before they can play (env REQUIRED_CHANNEL=@etFeed).
+    # Empty = no requirement. The bot must be an admin of that channel.
+    required_channel: str = ""
 
     class Config:
         env_file = ".env"
 
-    @property
+@property
     def owner_id_set(self) -> set[int]:
         return {int(x) for x in self.owner_ids.split(",") if x.strip()}
 
