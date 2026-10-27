@@ -1,19 +1,4 @@
-"""
-/word -- 4-letter Wordle-style game for the whole chat.
-
-  /word          start a round (anyone). Whole chat shares ONE secret word and
-                 30 guesses. Ends when someone solves it or the guesses run out.
-  <4 letters>    a plain 4-letter message is a guess while a round is running.
-  /giveup        end the round and show the word (after at least 5 guesses).
-  /contest 2h    admin only. Solves during the time count for the contest.
-                 When time is up the bot posts the final board and pins it.
-  /contest stop  admin only. Ends the running contest now.
-  /cotop         live contest board (points earned during the contest only).
-  /wordtop       all-time board for this chat.
-
-Needs Group Privacy turned OFF in BotFather, otherwise Telegram does not
-send the bot plain messages (only commands) in groups.
-"""
+""" /word -- 4-letter Wordle-style game for the whole chat. /word start a round (anyone). Whole chat shares ONE secret word and 30 guesses. Ends when someone solves it or the guesses run out. <4 letters> a plain 4-letter message is a guess while a round is running. /giveup end the round and show the word (after at least 5 guesses). /contest 2h admin only. Solves during the time count for the contest. When time is up the bot posts the final board and pins it. /contest stop admin only. Ends the running contest now. /cotop live contest board (points earned during the contest only). /wordtop all-time board for this chat. Needs Group Privacy turned OFF in BotFather, otherwise Telegram does not send the bot plain messages (only commands) in groups. """
 import asyncio
 import logging
 import re
@@ -32,7 +17,7 @@ from app.services.word_logic import (
     MAX_GUESSES, MIN_GIVEUP_GUESSES, format_left, parse_duration, render_marks, score_guess,
 )
 from app.services import wordgame as wg
-from app.services.start_gate import send_start_prompt
+from app.services.start_gate import send_start_prompt, send_join_prompt
 from app.services.sweep_gate import contest_gate
 from app.utils.html_esc import esc
 from app.utils.time import utcnow
@@ -82,7 +67,7 @@ async def word_cmd(message: Message):
             rnd = await wg.get_active_round(session, message.chat.id)
             if rnd is not None:
                 used = wg.guesses_of(rnd)
-                lines = [f"{render_marks(score_guess(rnd.word, g))}  <b>{g.upper()}</b>" for g in used]
+                lines = [f"{render_marks(score_guess(rnd.word, g))} <b>{g.upper()}</b>" for g in used]
                 text = f"a round is already running. {len(used)}/{MAX_GUESSES} guesses used."
                 if lines:
                     text += "\n\n" + "\n".join(lines)
@@ -130,7 +115,7 @@ async def giveup_cmd(message: Message):
 
 
 @router.message(F.text.regexp(GUESS_RE))
-async def guess_msg(message: Message, is_started: bool = True):
+async def guess_msg(message: Message, is_started: bool = True, is_member: bool = True):
     if message.from_user is None or message.from_user.is_bot:
         return
     async with _locks[message.chat.id]:
@@ -140,6 +125,9 @@ async def guess_msg(message: Message, is_started: bool = True):
                 return  # no round running: stay silent, it's just chat
             if not is_started:
                 await send_start_prompt(message)  # round is live, so tell them why their guess didn't count
+                return
+            if not is_member:
+                await send_join_prompt(message)
                 return
             user = message.from_user
             await get_or_create_user(session, user.id, user.full_name, user.username)
@@ -152,7 +140,7 @@ async def guess_msg(message: Message, is_started: bool = True):
     elif res.kind == "duplicate":
         await message.reply(f"<b>{res.guess.upper()}</b> was already guessed.")
     else:
-        row = f"{render_marks(res.marks)}  <b>{res.guess.upper()}</b>"
+        row = f"{render_marks(res.marks)} <b>{res.guess.upper()}</b>"
         if res.kind == "ok":
             await message.reply(f"{row}\nguess {res.guess_no}/{MAX_GUESSES} by {name}")
         elif res.kind == "solved":
@@ -238,8 +226,7 @@ async def wordtop_cmd(message: Message):
 
 
 async def finalize_contest(bot: Bot, contest_id: int) -> None:
-    """Ends the contest, posts the final board, pins it. Safe to call twice:
-    the second call finds it already ended and does nothing."""
+    """Ends the contest, posts the final board, pins it. Safe to call twice: the second call finds it already ended and does nothing."""
     async with get_session() as session:
         contest = await session.get(WordContest, contest_id)
         if contest is None or contest.status != "active":
@@ -268,9 +255,7 @@ async def finalize_contest(bot: Bot, contest_id: int) -> None:
 
 
 async def contest_sweep_loop(bot: Bot) -> None:
-    """Every 15s, checks whether a contest's end time has passed. It only reads
-    the database when one is due (see sweep_gate.py), and always once after a
-    restart, so a restart never loses a running contest."""
+    """Every 15s, checks whether a contest's end time has passed. It only reads the database when one is due (see sweep_gate.py), and always once after a restart, so a restart never loses a running contest."""
     first = True  # first pass after a restart always checks the database once
     while True:
         try:
